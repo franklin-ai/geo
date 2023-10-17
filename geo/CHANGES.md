@@ -29,6 +29,12 @@
 * Add `wkt!` macro to define geometries at compile time.
   <https://github.com/georust/geo/pull/1063>
 
+TODO Complete this
+* Add `triangulate_delaunay`:
+  * In order to build need to add:
+    * libopenblas-dev
+    * gfortran
+
 ## 0.26.0
 
 * Implement "Closest Point" from a `Point` on a `Geometry` using spherical geometry. <https://github.com/georust/geo/pull/958>
