@@ -8,12 +8,54 @@ use ndarray_linalg::solve::Determinant;
 
 pub const DEFAULT_SUPER_TRIANGLE_EXPANSION: f64 = 20.;
 
-type Result<T> = std::result::Result<T, DelaunayError>;
+type Result<T> = std::result::Result<T, DelaunayTriangulationError>;
 
 /// Delaunay Triangulation for a given set of points using the
 /// [Bowyer](https://doi.org/10.1093%2Fcomjnl%2F24.2.162)-[Watson](https://doi.org/10.1093%2Fcomjnl%2F24.2.167)
 /// algorithm
 pub trait TriangulateDelaunay<T: CoordFloat> {
+    /// # Examples
+    ///
+    /// ```
+    /// use geo::{coord, polygon, Triangle, TriangulateDelaunay};
+    ///
+    /// let points = polygon![
+    ///     (x: 0., y: 0.),
+    ///     (x: 1., y: 2.),
+    ///     (x: 2., y: 4.),
+    ///     (x: 2., y: 0.),
+    ///     (x: 3., y: 2.),
+    ///     (x: 4., y: 0.),
+    /// ];
+    ///
+    /// let tri_force = points.delaunay_triangulation().unwrap();
+    ///
+    /// assert_eq!(vec![
+    ///     Triangle(
+    ///         coord! {x: 1., y: 2.},
+    ///         coord! {x: 0., y: 0.},
+    ///         coord! {x: 2., y: 0.},
+    ///     ),
+    ///     Triangle(
+    ///         coord! {x: 2., y: 4.},
+    ///         coord! {x: 1., y: 2.},
+    ///         coord! {x: 3., y: 2.},
+    ///     ),
+    ///     Triangle(
+    ///         coord! {x: 1., y: 2.},
+    ///         coord! {x: 2., y: 0.},
+    ///         coord! {x: 3., y: 2.},
+    ///     ),
+    ///     Triangle(
+    ///         coord! {x: 3., y: 2.},
+    ///         coord! {x: 2., y: 0.},
+    ///         coord! {x: 4., y: 0.},
+    ///     )],
+    ///     tri_force
+    /// );
+    ///
+    /// ```
+    ///
     fn delaunay_triangulation(&self) -> Result<Vec<Triangle<T>>>;
 }
 
@@ -50,7 +92,7 @@ where
     let expand_factor = T::from(DEFAULT_SUPER_TRIANGLE_EXPANSION).unwrap();
     let bounds = geometry
         .bounding_rect()
-        .ok_or(DelaunayError::FailedToConstructSuperTriangle)?;
+        .ok_or(DelaunayTriangulationError::FailedToConstructSuperTriangle)?;
     let width = bounds.width() * expand_factor;
     let height = bounds.height() * expand_factor;
     let bounds_min = bounds.min();
@@ -69,7 +111,8 @@ where
 {
     let mut bad_triangles: Vec<&DelaunayTriangle<T>> = Vec::new();
 
-    // Find the first bad_triangle
+    // Check for the triangles where the point is present within the
+    // corresponding circumcircle.
     for tri in triangles.iter() {
         if tri.is_in_circumcircle(c)? {
             bad_triangles.push(tri);
@@ -80,7 +123,6 @@ where
 
     // Find all edges that are not shared with
     // other triangles, these can be removed.
-    // // TODO: See if we can make this more efficient.
     for tri in bad_triangles.iter() {
         for edge in tri.0.to_lines().iter() {
             let mut shared_edge = false;
@@ -143,15 +185,15 @@ fn remove_super_triangle<T: CoordFloat>(
     new_triangles.iter().for_each(|x| triangles.push(x.clone()));
 }
 
-/// A circumcircle
+/// A Circle defined by a centre and a radius
 ///
 /// # Examples
 ///
 /// ```rust
 /// use geo_types::coord;
-/// use geo::triangulate_delaunay::Circumcircle;
+/// use geo::triangulate_delaunay::Circle;
 ///
-/// let circle = Circumcircle::new(
+/// let circle = Circle::new(
 ///     coord! {x: 10., y: 2.},
 ///     12.
 /// );
@@ -159,12 +201,12 @@ fn remove_super_triangle<T: CoordFloat>(
 /// assert_eq!(circle.radius(), 12.);
 /// ```
 #[derive(Clone, Debug, PartialEq)]
-pub struct Circumcircle {
+pub struct Circle {
     center: Coord,
     radius: f64,
 }
 
-impl Circumcircle {
+impl Circle {
     pub fn new(center: Coord, radius: f64) -> Self {
         Self { center, radius }
     }
@@ -178,6 +220,7 @@ impl Circumcircle {
     }
 }
 
+/// A triangle structure used during Delaunay Triangulation
 #[derive(Debug, Clone, PartialEq)]
 pub struct DelaunayTriangle<T: CoordFloat>(Triangle<T>);
 
@@ -190,6 +233,7 @@ impl<T: CoordFloat> DelaunayTriangle<T>
 where
     f64: From<T>,
 {
+    /// Check if a `DelaunayTriangle` shares at least one vertex
     fn shares_vertex(&self, other: &DelaunayTriangle<T>) -> bool {
         let other_vertices = other.0.to_array();
         for vertex in self.0.to_array().iter() {
@@ -200,6 +244,8 @@ where
         false
     }
 
+    /// Check if a `DelaunayTriangle` is a neighbour i.e.
+    /// shares at least one edge.
     fn is_neighbour(&self, other: &DelaunayTriangle<T>) -> bool {
         let other_lines = other.0.to_lines();
         for line in self.0.to_lines().iter() {
@@ -212,6 +258,11 @@ where
         false
     }
 
+    /// Check if a `Coord` is in the [Circumcircle](https://en.wikipedia.org/wiki/Circumcircle)
+    /// for the Delaunay triangle.
+    /// This method uses the determinant of the vertices of the triangle and the
+    /// new point as described by [Guibas & Stolfi](https://doi.org/10.1145%2F282918.282923)
+    /// and on [Wikipedia](https://en.wikipedia.org/wiki/Delaunay_triangulation#Algorithms).
     fn is_in_circumcircle(&self, c: &Coord<T>) -> Result<bool> {
         let a_d_x: f64 = (self.0 .0.x - c.x).into();
         let a_d_y: f64 = (self.0 .0.y - c.y).into();
@@ -228,11 +279,13 @@ where
 
         Ok(eqn_sys
             .det()
-            .map_err(|_| DelaunayError::FailedToCheckPointInCircumcircle)?
+            .map_err(|_| DelaunayTriangulationError::FailedToCheckPointInCircumcircle)?
             > 0.0)
     }
 
-    fn get_circumcircle(&self) -> Result<Circumcircle> {
+    /// Get the [Circumcircle](https://en.wikipedia.org/wiki/Circumcircle)
+    /// for the Delaunay triangle.
+    fn get_circumcircle(&self) -> Result<Circle> {
         // Pin the triangle to the origin to simplify the calculation
         let b = self.0 .1 - self.0 .0;
         let c = self.0 .2 - self.0 .0;
@@ -247,7 +300,7 @@ where
         let d = 2.0 * (b_x * c_y - b_y * c_x);
 
         if d == 0.0 {
-            return Err(DelaunayError::FailedToComputeCircumcircle);
+            return Err(DelaunayTriangulationError::FailedToComputeCircumcircle);
         }
 
         let u_x: f64 = (c_y * (b_x.powi(2) + b_y.powi(2)) - b_y * (c_x.powi(2) + c_y.powi(2))) / d;
@@ -255,40 +308,38 @@ where
 
         let radius = f64::sqrt(u_x.powi(2) + u_y.powi(2));
 
-        Ok(Circumcircle {
+        Ok(Circle {
             center: coord! {x: a_x + u_x, y: a_y + u_y},
             radius,
         })
     }
 }
 
+/// Delaunay Triangulation Errors
 #[derive(Debug, PartialEq, Eq)]
-pub enum DelaunayError {
+pub enum DelaunayTriangulationError {
+    /// Failed to compute the circumcircle for a given triangle.
+    /// This can occur if the points are collinear.
     FailedToComputeCircumcircle,
+    /// Failed to check if a point is in a circumcircle.
     FailedToCheckPointInCircumcircle,
+    /// Failed to construct the super triangle.
+    /// This error occurs when the `Polygon` describing the points to
+    /// triangulate does not return a bounding rectangle.
     FailedToConstructSuperTriangle,
-    InvalidExpandFactor,
-    InvalidSuperTriangle,
 }
 
-impl fmt::Display for DelaunayError {
+impl fmt::Display for DelaunayTriangulationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            DelaunayError::FailedToComputeCircumcircle => {
+            DelaunayTriangulationError::FailedToComputeCircumcircle => {
                 write!(f, "Cannot compute circumcircle.")
             }
-            DelaunayError::FailedToCheckPointInCircumcircle => {
+            DelaunayTriangulationError::FailedToCheckPointInCircumcircle => {
                 write!(f, "Cannot determine if the point is in the circumcircle.")
             }
-            DelaunayError::FailedToConstructSuperTriangle => {
+            DelaunayTriangulationError::FailedToConstructSuperTriangle => {
                 write!(f, "Failed to construct the super triangle.")
-            }
-            DelaunayError::InvalidExpandFactor => write!(f, "Invalid expand factor"),
-            DelaunayError::InvalidSuperTriangle => {
-                write!(
-                    f,
-                    "Invalid super triangle, the Super triangle must enclose all points"
-                )
             }
         }
     }
