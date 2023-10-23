@@ -1,6 +1,5 @@
 use std::{fmt, fmt::Debug};
 
-#[allow(unused_imports)]
 use crate::coord;
 use crate::{BoundingRect, Coord, Line, Polygon, Triangle};
 use geo_types::{CoordFloat, MultiPoint};
@@ -202,27 +201,31 @@ fn remove_super_triangle<T: CoordFloat>(
 /// ```
 #[derive(Clone, Debug, PartialEq)]
 pub struct Circle {
-    center: Coord,
-    radius: f64,
+    pub center: Coord,
+    pub radius: f64,
 }
 
 impl Circle {
     pub fn new(center: Coord, radius: f64) -> Self {
         Self { center, radius }
     }
-
-    pub fn center(&self) -> &Coord {
-        &self.center
-    }
-
-    pub fn radius(&self) -> f64 {
-        self.radius
-    }
 }
 
 /// A triangle structure used during Delaunay Triangulation
 #[derive(Debug, Clone, PartialEq)]
 pub struct DelaunayTriangle<T: CoordFloat>(Triangle<T>);
+
+impl<T: CoordFloat> Into<DelaunayTriangle<T>> for Triangle<T> {
+    fn into(self) -> DelaunayTriangle<T> {
+        DelaunayTriangle(self)
+    }
+}
+
+impl<T: CoordFloat> Into<Triangle<T>> for DelaunayTriangle<T> {
+    fn into(self) -> Triangle<T> {
+        self.0
+    }
+}
 
 fn is_line_shared<T: CoordFloat>(a: &Line<T>, b: &Line<T>) -> bool {
     (a.start == b.start && a.end == b.end) || (a.start == b.end && a.end == b.start)
@@ -233,8 +236,9 @@ impl<T: CoordFloat> DelaunayTriangle<T>
 where
     f64: From<T>,
 {
+    #[cfg(feature = "voronoi")]
     /// Check if a `DelaunayTriangle` shares at least one vertex
-    fn shares_vertex(&self, other: &DelaunayTriangle<T>) -> bool {
+    pub fn shares_vertex(&self, other: &DelaunayTriangle<T>) -> bool {
         let other_vertices = other.0.to_array();
         for vertex in self.0.to_array().iter() {
             if other_vertices.contains(vertex) {
@@ -244,18 +248,20 @@ where
         false
     }
 
+    #[cfg(feature = "voronoi")]
     /// Check if a `DelaunayTriangle` is a neighbour i.e.
-    /// shares at least one edge.
-    fn is_neighbour(&self, other: &DelaunayTriangle<T>) -> bool {
+    /// shares an edge.
+    /// If the triangles are neighbours the shared edge is returned
+    pub fn shares_edge(&self, other: &DelaunayTriangle<T>) -> Option<Line<T>> {
         let other_lines = other.0.to_lines();
         for line in self.0.to_lines().iter() {
             for other_line in other_lines.iter() {
                 if is_line_shared(line, other_line) {
-                    return true;
+                    return Some(line.clone());
                 }
             }
         }
-        false
+        None
     }
 
     /// Check if a `Coord` is in the [Circumcircle](https://en.wikipedia.org/wiki/Circumcircle)
@@ -263,7 +269,7 @@ where
     /// This method uses the determinant of the vertices of the triangle and the
     /// new point as described by [Guibas & Stolfi](https://doi.org/10.1145%2F282918.282923)
     /// and on [Wikipedia](https://en.wikipedia.org/wiki/Delaunay_triangulation#Algorithms).
-    fn is_in_circumcircle(&self, c: &Coord<T>) -> Result<bool> {
+    pub fn is_in_circumcircle(&self, c: &Coord<T>) -> Result<bool> {
         let a_d_x: f64 = (self.0 .0.x - c.x).into();
         let a_d_y: f64 = (self.0 .0.y - c.y).into();
         let b_d_x: f64 = (self.0 .1.x - c.x).into();
@@ -283,9 +289,10 @@ where
             > 0.0)
     }
 
+    #[cfg(feature = "voronoi")]
     /// Get the [Circumcircle](https://en.wikipedia.org/wiki/Circumcircle)
     /// for the Delaunay triangle.
-    fn get_circumcircle(&self) -> Result<Circle> {
+    pub fn get_circumcircle(&self) -> Result<Circle> {
         // Pin the triangle to the origin to simplify the calculation
         let b = self.0 .1 - self.0 .0;
         let c = self.0 .2 - self.0 .0;
@@ -391,7 +398,10 @@ mod test {
             coord! {x: 30., y: 40.},
         ));
 
-        assert!(triangle.is_neighbour(&other));
+        assert_eq!(
+            triangle.shares_edge(&other).unwrap(),
+            Line::new(coord! {x: 0., y:0.}, coord! { x: 10., y: 20.})
+        );
 
         let other = DelaunayTriangle(Triangle::new(
             coord! {x: 0., y: 0.},
@@ -399,7 +409,7 @@ mod test {
             coord! {x: 40., y: 50.},
         ));
 
-        assert!(!triangle.is_neighbour(&other));
+        assert!(triangle.shares_edge(&other).is_none());
     }
 
     #[test]
@@ -427,8 +437,8 @@ mod test {
         ));
 
         let circle = triangle.get_circumcircle().unwrap();
-        approx::assert_relative_eq!(circle.center(), &coord! {x: 20., y: 10.});
-        approx::assert_relative_eq!(circle.radius(), 10.);
+        approx::assert_relative_eq!(circle.center, coord! {x: 20., y: 10.});
+        approx::assert_relative_eq!(circle.radius, 10.);
     }
 
     #[test]

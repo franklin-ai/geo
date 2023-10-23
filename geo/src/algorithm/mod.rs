@@ -252,11 +252,13 @@ pub mod triangulate_earcut;
 #[cfg(feature = "earcutr")]
 pub use triangulate_earcut::TriangulateEarcut;
 
-// TODO use feature flag
 #[cfg(feature = "delaunay")]
 pub mod triangulate_delaunay;
 #[cfg(feature = "delaunay")]
 pub use triangulate_delaunay::TriangulateDelaunay;
+
+#[cfg(feature = "voronoi")]
+pub mod voronoi_diagram;
 
 /// Vector Operations for 2D coordinates
 mod vector_ops;
