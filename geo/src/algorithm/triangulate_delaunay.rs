@@ -1,8 +1,7 @@
 use std::{fmt, fmt::Debug};
 
 use crate::coord;
-use crate::{BoundingRect, Coord, Line, Polygon, Triangle};
-use geo_types::{CoordFloat, MultiPoint};
+use crate::{BoundingRect, Coord, GeoFloat, Line, MultiPoint, Polygon, Triangle};
 use ndarray_linalg::solve::Determinant;
 
 pub const DEFAULT_SUPER_TRIANGLE_EXPANSION: f64 = 20.;
@@ -12,7 +11,7 @@ type Result<T> = std::result::Result<T, DelaunayTriangulationError>;
 /// Delaunay Triangulation for a given set of points using the
 /// [Bowyer](https://doi.org/10.1093%2Fcomjnl%2F24.2.162)-[Watson](https://doi.org/10.1093%2Fcomjnl%2F24.2.167)
 /// algorithm
-pub trait TriangulateDelaunay<T: CoordFloat> {
+pub trait TriangulateDelaunay<T: GeoFloat> {
     /// # Examples
     ///
     /// ```
@@ -58,7 +57,7 @@ pub trait TriangulateDelaunay<T: CoordFloat> {
     fn delaunay_triangulation(&self) -> Result<Vec<Triangle<T>>>;
 }
 
-impl<T: CoordFloat> TriangulateDelaunay<T> for Polygon<T>
+impl<T: GeoFloat> TriangulateDelaunay<T> for Polygon<T>
 where
     f64: From<T>,
 {
@@ -74,7 +73,7 @@ where
     }
 }
 
-impl<T: CoordFloat> TriangulateDelaunay<T> for MultiPoint<T>
+impl<T: GeoFloat> TriangulateDelaunay<T> for MultiPoint<T>
 where
     f64: From<T>,
 {
@@ -84,11 +83,12 @@ where
     }
 }
 
-fn create_super_triangle<T: CoordFloat>(geometry: &Polygon<T>) -> Result<Triangle<T>>
+fn create_super_triangle<T: GeoFloat>(geometry: &Polygon<T>) -> Result<Triangle<T>>
 where
     f64: From<T>,
 {
-    let expand_factor = T::from(DEFAULT_SUPER_TRIANGLE_EXPANSION).unwrap();
+    let expand_factor = T::from(DEFAULT_SUPER_TRIANGLE_EXPANSION)
+        .ok_or(DelaunayTriangulationError::FailedToConstructSuperTriangle)?;
     let bounds = geometry
         .bounding_rect()
         .ok_or(DelaunayTriangulationError::FailedToConstructSuperTriangle)?;
@@ -104,7 +104,7 @@ where
     ))
 }
 
-fn add_point<T: CoordFloat>(triangles: &mut Vec<DelaunayTriangle<T>>, c: &Coord<T>) -> Result<()>
+fn add_point<T: GeoFloat>(triangles: &mut Vec<DelaunayTriangle<T>>, c: &Coord<T>) -> Result<()>
 where
     f64: From<T>,
 {
@@ -161,7 +161,7 @@ where
     Ok(())
 }
 
-fn remove_super_triangle<T: CoordFloat>(
+fn remove_super_triangle<T: GeoFloat>(
     triangles: &mut Vec<DelaunayTriangle<T>>,
     super_triangle: &DelaunayTriangle<T>,
 ) {
@@ -196,43 +196,43 @@ fn remove_super_triangle<T: CoordFloat>(
 ///     coord! {x: 10., y: 2.},
 ///     12.
 /// );
-/// assert_eq!(*circle.center(), coord! {x:10., y: 2.});
-/// assert_eq!(circle.radius(), 12.);
+/// assert_eq!(circle.center, coord! {x:10., y: 2.});
+/// assert_eq!(circle.radius, 12.);
 /// ```
 #[derive(Clone, Debug, PartialEq)]
-pub struct Circle {
-    pub center: Coord,
-    pub radius: f64,
+pub struct Circle<T: GeoFloat> {
+    pub center: Coord<T>,
+    pub radius: T,
 }
 
-impl Circle {
-    pub fn new(center: Coord, radius: f64) -> Self {
+impl<T: GeoFloat> Circle<T> {
+    pub fn new(center: Coord<T>, radius: T) -> Self {
         Self { center, radius }
     }
 }
 
 /// A triangle structure used during Delaunay Triangulation
 #[derive(Debug, Clone, PartialEq)]
-pub struct DelaunayTriangle<T: CoordFloat>(Triangle<T>);
+pub struct DelaunayTriangle<T: GeoFloat>(Triangle<T>);
 
-impl<T: CoordFloat> Into<DelaunayTriangle<T>> for Triangle<T> {
-    fn into(self) -> DelaunayTriangle<T> {
-        DelaunayTriangle(self)
+impl<T: GeoFloat> From<Triangle<T>> for DelaunayTriangle<T> {
+    fn from(value: Triangle<T>) -> Self {
+        DelaunayTriangle(value)
     }
 }
 
-impl<T: CoordFloat> Into<Triangle<T>> for DelaunayTriangle<T> {
-    fn into(self) -> Triangle<T> {
-        self.0
+impl<T: GeoFloat> From<DelaunayTriangle<T>> for Triangle<T> {
+    fn from(value: DelaunayTriangle<T>) -> Self {
+        value.0
     }
 }
 
-fn is_line_shared<T: CoordFloat>(a: &Line<T>, b: &Line<T>) -> bool {
+fn is_line_shared<T: GeoFloat>(a: &Line<T>, b: &Line<T>) -> bool {
     (a.start == b.start && a.end == b.end) || (a.start == b.end && a.end == b.start)
 }
 
 /// Methods required for delaunay triangulation
-impl<T: CoordFloat> DelaunayTriangle<T>
+impl<T: GeoFloat> DelaunayTriangle<T>
 where
     f64: From<T>,
 {
@@ -257,7 +257,7 @@ where
         for line in self.0.to_lines().iter() {
             for other_line in other_lines.iter() {
                 if is_line_shared(line, other_line) {
-                    return Some(line.clone());
+                    return Some(*line);
                 }
             }
         }
@@ -292,28 +292,29 @@ where
     #[cfg(feature = "voronoi")]
     /// Get the [Circumcircle](https://en.wikipedia.org/wiki/Circumcircle)
     /// for the Delaunay triangle.
-    pub fn get_circumcircle(&self) -> Result<Circle> {
+    pub fn get_circumcircle(&self) -> Result<Circle<T>> {
         // Pin the triangle to the origin to simplify the calculation
         let b = self.0 .1 - self.0 .0;
         let c = self.0 .2 - self.0 .0;
 
-        let a_x: f64 = self.0 .0.x.into();
-        let a_y: f64 = self.0 .0.y.into();
-        let b_x: f64 = b.x.into();
-        let b_y: f64 = b.y.into();
-        let c_x: f64 = c.x.into();
-        let c_y: f64 = c.y.into();
+        let a_x = self.0 .0.x;
+        let a_y = self.0 .0.y;
+        let b_x = b.x;
+        let b_y = b.y;
+        let c_x = c.x;
+        let c_y = c.y;
 
-        let d = 2.0 * (b_x * c_y - b_y * c_x);
+        let d = T::from(2.0).ok_or(DelaunayTriangulationError::GeoTypeConversionError)?
+            * (b_x * c_y - b_y * c_x);
 
-        if d == 0.0 {
+        if d.is_zero() {
             return Err(DelaunayTriangulationError::FailedToComputeCircumcircle);
         }
 
-        let u_x: f64 = (c_y * (b_x.powi(2) + b_y.powi(2)) - b_y * (c_x.powi(2) + c_y.powi(2))) / d;
-        let u_y: f64 = (b_x * (c_x.powi(2) + c_y.powi(2)) - c_x * (b_x.powi(2) + b_y.powi(2))) / d;
+        let u_x = (c_y * (b_x.powi(2) + b_y.powi(2)) - b_y * (c_x.powi(2) + c_y.powi(2))) / d;
+        let u_y = (b_x * (c_x.powi(2) + c_y.powi(2)) - c_x * (b_x.powi(2) + b_y.powi(2))) / d;
 
-        let radius = f64::sqrt(u_x.powi(2) + u_y.powi(2));
+        let radius = T::sqrt(u_x.powi(2) + u_y.powi(2));
 
         Ok(Circle {
             center: coord! {x: a_x + u_x, y: a_y + u_y},
@@ -334,6 +335,8 @@ pub enum DelaunayTriangulationError {
     /// This error occurs when the `Polygon` describing the points to
     /// triangulate does not return a bounding rectangle.
     FailedToConstructSuperTriangle,
+    FailedToConvertSuperTriangleFactor,
+    GeoTypeConversionError,
 }
 
 impl fmt::Display for DelaunayTriangulationError {
@@ -347,6 +350,12 @@ impl fmt::Display for DelaunayTriangulationError {
             }
             DelaunayTriangulationError::FailedToConstructSuperTriangle => {
                 write!(f, "Failed to construct the super triangle.")
+            }
+            DelaunayTriangulationError::GeoTypeConversionError => {
+                write!(f, "Failed to convert from Geo type T")
+            }
+            DelaunayTriangulationError::FailedToConvertSuperTriangleFactor => {
+                write!(f, "Failed to convert super triangle expansion factor")
             }
         }
     }
