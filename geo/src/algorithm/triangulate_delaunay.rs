@@ -2,7 +2,7 @@ use std::{fmt, fmt::Debug};
 
 use crate::coord;
 use crate::{BoundingRect, Coord, GeoFloat, Line, MultiPoint, Polygon, Triangle};
-use ndarray_linalg::solve::Determinant;
+// use ndarray_linalg::solve::Determinant;
 
 pub const DEFAULT_SUPER_TRIANGLE_EXPANSION: f64 = 20.;
 
@@ -276,17 +276,37 @@ where
         let b_d_y: f64 = (self.0 .1.y - c.y).into();
         let c_d_x: f64 = (self.0 .2.x - c.x).into();
         let c_d_y: f64 = (self.0 .2.y - c.y).into();
+        let a_d_x_d_y = a_d_x.powi(2) + a_d_y.powi(2);
+        let b_d_x_d_y = b_d_x.powi(2) + b_d_y.powi(2);
+        let c_d_x_d_y = c_d_x.powi(2) + c_d_y.powi(2);
 
-        let eqn_sys = ndarray::arr2(&[
-            [a_d_x, a_d_y, a_d_x.powi(2) + a_d_y.powi(2)],
-            [b_d_x, b_d_y, b_d_x.powi(2) + b_d_y.powi(2)],
-            [c_d_x, c_d_y, c_d_x.powi(2) + c_d_y.powi(2)],
-        ]);
+        // Compute the determinant of the following matrix
+        // [
+        //     [a_d_x, a_d_y, a_d_x_d_y],
+        //     [b_d_x, b_d_y, b_d_x_d_y],
+        //     [c_d_x, c_d_y, c_d_x_d_y],
+        // ]
+        //
+        let determinant = a_d_x * ((b_d_y * c_d_x_d_y) - (b_d_x_d_y * c_d_y))
+            - a_d_y * ((b_d_x * c_d_x_d_y) - (b_d_x_d_y * c_d_x))
+            + a_d_x_d_y * (b_d_x * c_d_y - b_d_y * c_d_x);
 
-        Ok(eqn_sys
-            .det()
-            .map_err(|_| DelaunayTriangulationError::FailedToCheckPointInCircumcircle)?
-            > 0.0)
+        // let eqn_sys = ndarray::arr2(&[
+        //     [a_d_x, a_d_y, a_d_x.powi(2) + a_d_y.powi(2)],
+        //     [b_d_x, b_d_y, b_d_x.powi(2) + b_d_y.powi(2)],
+        //     [c_d_x, c_d_y, c_d_x.powi(2) + c_d_y.powi(2)],
+        // ]);
+
+        // let det_b = eqn_sys.det().unwrap();
+
+        // println!("{determinant}, {det_b}");
+
+        Ok(determinant > 0.0)
+
+        // Ok(eqn_sys
+        //     .det()
+        //     .map_err(|_| DelaunayTriangulationError::FailedToCheckPointInCircumcircle)?
+        //     > 0.0)
     }
 
     #[cfg(feature = "voronoi")]
