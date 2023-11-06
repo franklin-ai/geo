@@ -113,7 +113,7 @@ where
     // Check for the triangles where the point is present within the
     // corresponding circumcircle.
     for tri in triangles.iter() {
-        if tri.is_in_circumcircle(c)? {
+        if tri.is_in_circumcircle(c) {
             bad_triangles.push(tri);
         }
     }
@@ -269,7 +269,7 @@ where
     /// This method uses the determinant of the vertices of the triangle and the
     /// new point as described by [Guibas & Stolfi](https://doi.org/10.1145%2F282918.282923)
     /// and on [Wikipedia](https://en.wikipedia.org/wiki/Delaunay_triangulation#Algorithms).
-    pub fn is_in_circumcircle(&self, c: &Coord<T>) -> Result<bool> {
+    pub fn is_in_circumcircle(&self, c: &Coord<T>) -> bool {
         let a_d_x: f64 = (self.0 .0.x - c.x).into();
         let a_d_y: f64 = (self.0 .0.y - c.y).into();
         let b_d_x: f64 = (self.0 .1.x - c.x).into();
@@ -291,22 +291,7 @@ where
             - a_d_y * ((b_d_x * c_d_x_d_y) - (b_d_x_d_y * c_d_x))
             + a_d_x_d_y * (b_d_x * c_d_y - b_d_y * c_d_x);
 
-        // let eqn_sys = ndarray::arr2(&[
-        //     [a_d_x, a_d_y, a_d_x.powi(2) + a_d_y.powi(2)],
-        //     [b_d_x, b_d_y, b_d_x.powi(2) + b_d_y.powi(2)],
-        //     [c_d_x, c_d_y, c_d_x.powi(2) + c_d_y.powi(2)],
-        // ]);
-
-        // let det_b = eqn_sys.det().unwrap();
-
-        // println!("{determinant}, {det_b}");
-
-        Ok(determinant > 0.0)
-
-        // Ok(eqn_sys
-        //     .det()
-        //     .map_err(|_| DelaunayTriangulationError::FailedToCheckPointInCircumcircle)?
-        //     > 0.0)
+        determinant > 0.0
     }
 
     #[cfg(feature = "voronoi")]
@@ -449,12 +434,8 @@ mod test {
             coord! {x: 20., y: 20.},
         ));
 
-        assert!(triangle
-            .is_in_circumcircle(&coord! {x: 20., y: 10.})
-            .unwrap());
-        assert!(!triangle
-            .is_in_circumcircle(&coord! {x: 10., y: 30.})
-            .unwrap());
+        assert!(triangle.is_in_circumcircle(&coord! {x: 20., y: 10.}));
+        assert!(!triangle.is_in_circumcircle(&coord! {x: 10., y: 30.}));
     }
 
     #[test]
