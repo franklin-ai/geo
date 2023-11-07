@@ -2,7 +2,6 @@ use std::{fmt, fmt::Debug};
 
 use crate::coord;
 use crate::{BoundingRect, Coord, GeoFloat, Line, MultiPoint, Polygon, Triangle};
-// use ndarray_linalg::solve::Determinant;
 
 pub const DEFAULT_SUPER_TRIANGLE_EXPANSION: f64 = 20.;
 
@@ -104,6 +103,15 @@ where
     ))
 }
 
+fn find_line<T: GeoFloat>(line: &Line<T>, lines: &[Line<T>]) -> Option<usize> {
+    for (idx, sample_line) in lines.iter().enumerate() {
+        if line == sample_line {
+            return Some(idx);
+        }
+    }
+    None
+}
+
 fn add_point<T: GeoFloat>(triangles: &mut Vec<DelaunayTriangle<T>>, c: &Coord<T>) -> Result<()>
 where
     f64: From<T>,
@@ -118,30 +126,33 @@ where
         }
     }
 
-    let mut polygon: Vec<Line<T>> = Vec::new();
-
-    // Find all edges that are not shared with
-    // other triangles, these can be removed.
-    for tri in bad_triangles.iter() {
-        for edge in tri.0.to_lines().iter() {
-            let mut shared_edge = false;
-            for other_tri in bad_triangles.iter() {
-                if tri == other_tri {
-                    continue;
+    let mut bad_triangle_edges: Vec<Line<T>> = Vec::new();
+    let mut bad_triangle_edge_count: Vec<u128> = Vec::new();
+    bad_triangles.iter().for_each(|x| {
+        x.0.to_lines().iter().for_each(|y| {
+            let flipped_y = Line::new(y.end, y.start);
+            let idx =
+                find_line(y, &bad_triangle_edges).or(find_line(&flipped_y, &bad_triangle_edges));
+            match idx {
+                Some(idx) => {
+                    let count = bad_triangle_edge_count.get_mut(idx).unwrap();
+                    *count += 1;
                 }
-
-                for other_edge in other_tri.0.to_lines().iter() {
-                    if is_line_shared(edge, other_edge) {
-                        shared_edge = true;
-                    }
+                None => {
+                    bad_triangle_edges.push(*y);
+                    bad_triangle_edge_count.push(1);
                 }
             }
+        })
+    });
 
-            if !shared_edge {
-                polygon.push(*edge);
-            }
-        }
-    }
+    // Shared edges are those with a count of > 1
+    let polygon: Vec<Line<T>> = bad_triangle_edge_count
+        .iter()
+        .enumerate()
+        .filter(|(_, count)| **count < 2)
+        .map(|(idx, _)| bad_triangle_edges[idx])
+        .collect();
 
     // Remove the bad triangles
     let mut new_triangles: Vec<DelaunayTriangle<T>> = triangles
@@ -476,7 +487,7 @@ mod test {
         assert_eq!(expected_result, triangles);
     }
 
-    //Execute the geos tests
+    // Execute the geos tests
 
     // https://github.com/libgeos/geos/blob/d51982c6da5b7adb63ca0933ae7b53828cc8d72e/tests/unit/triangulate/DelaunayTest.cpp#L113
     #[test]

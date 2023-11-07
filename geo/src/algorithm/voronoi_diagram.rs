@@ -117,15 +117,9 @@ where
     // Create the lines joining the vertices
     let mut voronoi_lines: Vec<Line<T>> = Vec::new();
     for neighbour in shared.neighbours.iter() {
-        if neighbour.0.is_none() || neighbour.1.is_none() {
-            continue;
+        if let (Some(first_vertex), Some(second_vertex)) = (neighbour.0, neighbour.1) {
+            voronoi_lines.push(Line::new(vertices[first_vertex], vertices[second_vertex]));
         }
-        // There are no Nones so unwrap is safe
-        // each neighbour is also only a vec with 2 elements
-        let first_vertex = neighbour.0.unwrap();
-        let second_vertex = neighbour.1.unwrap();
-
-        voronoi_lines.push(Line::new(vertices[first_vertex], vertices[second_vertex]));
     }
 
     voronoi_lines.extend(construct_edges_to_inf(
@@ -349,14 +343,13 @@ where
         // It is a vertical line so we need to ensure it moves up or down correctly
         let end = if slope.is_infinite() {
             match guiding_direction {
-                GuidingDirection::Left => todo!(),
-                GuidingDirection::Right => todo!(),
                 GuidingDirection::Up => {
                     coord! {x: circumcenter.x, y: circumcenter.y + line.dy().abs() * height_factor}
                 }
                 GuidingDirection::Down => {
                     coord! {x: circumcenter.x, y: circumcenter.y - line.dy().abs() * height_factor}
                 }
+                _ => return Err(VoronoiDiagramError::UnexpectedDirectionForInfinityVertex),
             }
         } else {
             let b = circumcenter.y - line.slope() * circumcenter.x;
@@ -444,9 +437,8 @@ where
     // Get the vertices with connections to infinity
     let mut inf_lines: Vec<Line<T>> = Vec::new();
     for neighbour in neighbours.iter() {
-        if neighbour.0.is_none() {
+        if let (None, Some(tri_idx)) = (neighbour.0, neighbour.1) {
             // Unwrap here is ok as the filtered vec can only be [None, Some(idx)]
-            let tri_idx = neighbour.1.unwrap();
             let inf_edge = define_edge_to_infinity(
                 &triangles[tri_idx],
                 &vertices[tri_idx],
@@ -501,6 +493,7 @@ pub enum VoronoiDiagramError {
     CannotComputeExpectedInfinityVertex,
     InvalidClippingMaskMultipleIntersections,
     InvalidClippingMaskNoIntersections,
+    UnexpectedDirectionForInfinityVertex,
 }
 
 impl fmt::Display for VoronoiDiagramError {
@@ -529,6 +522,9 @@ impl fmt::Display for VoronoiDiagramError {
                     f,
                     "An edge to infinity does not intersect with the clipping mask"
                 )
+            }
+            VoronoiDiagramError::UnexpectedDirectionForInfinityVertex => {
+                write!(f, "The direction of the infinity vertex is unexpected")
             }
         }
     }
@@ -877,8 +873,6 @@ mod test {
             coord! {x: 353.516, y: 298.594},
             coord! {x: 306.875, y: 231.964},
         ];
-
-        // println!("{:?}", voronoi.lines);
 
         for (vertex, expected) in voronoi.vertices.iter().zip(expected_vertices) {
             approx::assert_relative_eq!(
