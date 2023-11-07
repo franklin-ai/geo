@@ -718,6 +718,13 @@ mod test {
             trimmed_inf,
             Line::new(coord! { x: -12., y: 9.}, coord! { x: -5., y: -5.})
         );
+
+        // Parallel lines do not intersect and thus should return None
+        let inf_line = Line::new(coord! { x: 0., y: 0.}, coord! { x: 100., y: 100.});
+        let bounding_line = Line::new(coord! { x: 100., y: 100.}, coord! {x: 200., y: 200.});
+        let trimmed_inf = trim_line_to_intersection(&inf_line, &bounding_line);
+
+        assert!(trimmed_inf.is_none());
     }
 
     fn compare_voronoi(voronoi_vertices: Vec<Coord>, voronoi_lines: Vec<Line>) {

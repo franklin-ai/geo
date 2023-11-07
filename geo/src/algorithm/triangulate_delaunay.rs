@@ -135,10 +135,12 @@ where
                 find_line(y, &bad_triangle_edges).or(find_line(&flipped_y, &bad_triangle_edges));
             match idx {
                 Some(idx) => {
+                    // The unwrap is acceptable due to the push lines below.
                     let count = bad_triangle_edge_count.get_mut(idx).unwrap();
                     *count += 1;
                 }
                 None => {
+                    // These two vectors must be updated at the same time
                     bad_triangle_edges.push(*y);
                     bad_triangle_edge_count.push(1);
                 }
