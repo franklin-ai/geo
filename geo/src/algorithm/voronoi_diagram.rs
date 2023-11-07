@@ -106,9 +106,8 @@ where
     let mut vertices: Vec<Coord<T>> = Vec::new();
     for tri in delaunay_triangles.iter() {
         vertices.push(
-            tri.get_circumcircle()
-                .map_err(VoronoiDiagramError::DelaunayError)?
-                .center,
+            tri.get_circumcircle_center()
+                .map_err(VoronoiDiagramError::DelaunayError)?,
         );
     }
 
@@ -674,7 +673,7 @@ mod test {
 
         let bounds = Rect::new(coord! {x: -2., y: -2.}, coord! {x: 2., y: 2.});
 
-        let circumcenter = tri.get_circumcircle().unwrap().center;
+        let circumcenter = tri.get_circumcircle_center().unwrap();
         let mut shared_edges = vec![
             Line::new(coord! {x: 0., y: 0.}, coord! {x: 0., y: 1. }),
             Line::new(coord! {x: 0., y: 1.}, coord! {x: 1., y: 1. }),
@@ -687,7 +686,7 @@ mod test {
             Line::new(coord! {x: 0.5, y: 0.5}, coord! {x: 8.5, y: -7.5},)
         );
 
-        let circumcenter = tri2.get_circumcircle().unwrap().center;
+        let circumcenter = tri2.get_circumcircle_center().unwrap();
         let perpendicular_line =
             define_edge_to_infinity(&tri2, &circumcenter, &mut shared_edges, &bounds).unwrap();
         assert_eq!(
@@ -695,7 +694,7 @@ mod test {
             Line::new(coord! {x: -1.5, y: 0.5}, coord! {x: -9.5, y: -3.5},)
         );
 
-        let circumcenter = tri3.get_circumcircle().unwrap().center;
+        let circumcenter = tri3.get_circumcircle_center().unwrap();
         let perpendicular_line =
             define_edge_to_infinity(&tri3, &circumcenter, &mut shared_edges, &bounds).unwrap();
         assert_eq!(

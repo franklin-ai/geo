@@ -184,33 +184,6 @@ fn remove_super_triangle<T: GeoFloat>(
     new_triangles.iter().for_each(|x| triangles.push(x.clone()));
 }
 
-/// A Circle defined by a centre and a radius
-///
-/// # Examples
-///
-/// ```rust
-/// use geo_types::coord;
-/// use geo::triangulate_delaunay::Circle;
-///
-/// let circle = Circle::new(
-///     coord! {x: 10., y: 2.},
-///     12.
-/// );
-/// assert_eq!(circle.center, coord! {x:10., y: 2.});
-/// assert_eq!(circle.radius, 12.);
-/// ```
-#[derive(Clone, Debug, PartialEq)]
-pub struct Circle<T: GeoFloat> {
-    pub center: Coord<T>,
-    pub radius: T,
-}
-
-impl<T: GeoFloat> Circle<T> {
-    pub fn new(center: Coord<T>, radius: T) -> Self {
-        Self { center, radius }
-    }
-}
-
 /// A triangle structure used during Delaunay Triangulation
 #[derive(Debug, Clone, PartialEq)]
 pub struct DelaunayTriangle<T: GeoFloat>(Triangle<T>);
@@ -295,9 +268,9 @@ where
     }
 
     #[cfg(feature = "voronoi")]
-    /// Get the [Circumcircle](https://en.wikipedia.org/wiki/Circumcircle)
+    /// Get the center of the [Circumcircle](https://en.wikipedia.org/wiki/Circumcircle)
     /// for the Delaunay triangle.
-    pub fn get_circumcircle(&self) -> Result<Circle<T>> {
+    pub fn get_circumcircle_center(&self) -> Result<Coord<T>> {
         // Pin the triangle to the origin to simplify the calculation
         let b = self.0 .1 - self.0 .0;
         let c = self.0 .2 - self.0 .0;
@@ -319,12 +292,7 @@ where
         let u_x = (c_y * (b_x.powi(2) + b_y.powi(2)) - b_y * (c_x.powi(2) + c_y.powi(2))) / d;
         let u_y = (b_x * (c_x.powi(2) + c_y.powi(2)) - c_x * (b_x.powi(2) + b_y.powi(2))) / d;
 
-        let radius = T::sqrt(u_x.powi(2) + u_y.powi(2));
-
-        Ok(Circle {
-            center: coord! {x: a_x + u_x, y: a_y + u_y},
-            radius,
-        })
+        Ok(coord! {x: a_x + u_x, y: a_y + u_y})
     }
 }
 
@@ -446,9 +414,8 @@ mod test {
             coord! {x: 30., y: 10.},
         ));
 
-        let circle = triangle.get_circumcircle().unwrap();
-        approx::assert_relative_eq!(circle.center, coord! {x: 20., y: 10.});
-        approx::assert_relative_eq!(circle.radius, 10.);
+        let circle_center = triangle.get_circumcircle_center().unwrap();
+        approx::assert_relative_eq!(circle_center, coord! {x: 20., y: 10.});
     }
 
     #[test]
@@ -462,7 +429,7 @@ mod test {
         // The circumcircle for collinear points cannot be
         // determined as the radius would be infinite
         triangle
-            .get_circumcircle()
+            .get_circumcircle_center()
             .expect_err("Cannot compute circumcircle");
     }
 
