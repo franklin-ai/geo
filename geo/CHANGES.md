@@ -28,12 +28,8 @@
   * <https://github.com/georust/geo/pull/1091>
 * Add `wkt!` macro to define geometries at compile time.
   <https://github.com/georust/geo/pull/1063>
-
-TODO Complete this
-* Add `triangulate_delaunay`:
-  * In order to build need to add:
-    * libopenblas-dev
-    * gfortran
+* Add `TriangulateDelaunay` and `VoronoiDiagram` traits.
+  * <https://github.com/franklin-ai/geo/pull/2>
 
 ## 0.26.0
 
