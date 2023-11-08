@@ -17,15 +17,20 @@ pub struct VoronoiComponents<T: GeoFloat> {
     pub neighbours: Vec<(Option<usize>, Option<usize>)>,
 }
 
+pub type ClippingMask<T> = Polygon<T>;
+
 pub trait VoronoiDiagram<T: GeoFloat>
 where
     f64: From<T>,
 {
     fn compute_voronoi_components(
         &self,
-        clipping_mask: Option<&Polygon<T>>,
+        clipping_mask: Option<&ClippingMask<T>>,
     ) -> Result<VoronoiComponents<T>>;
-    fn compute_voronoi_diagram(&self, clipping_mask: Option<&Polygon<T>>) -> Result<Vec<Polygon>>;
+    fn compute_voronoi_diagram(
+        &self,
+        clipping_mask: Option<&ClippingMask<T>>,
+    ) -> Result<Vec<Polygon>>;
 }
 
 impl<T: GeoFloat> VoronoiDiagram<T> for Polygon<T>
@@ -34,12 +39,15 @@ where
 {
     fn compute_voronoi_components(
         &self,
-        clipping_mask: Option<&Polygon<T>>,
+        clipping_mask: Option<&ClippingMask<T>>,
     ) -> Result<VoronoiComponents<T>> {
         compute_voronoi_components(self, clipping_mask)
     }
 
-    fn compute_voronoi_diagram(&self, _clipping_mask: Option<&Polygon<T>>) -> Result<Vec<Polygon>> {
+    fn compute_voronoi_diagram(
+        &self,
+        _clipping_mask: Option<&ClippingMask<T>>,
+    ) -> Result<Vec<Polygon>> {
         todo!("Need to map the components to voronoi cells");
     }
 }
@@ -49,19 +57,22 @@ where
 {
     fn compute_voronoi_components(
         &self,
-        clipping_mask: Option<&Polygon<T>>,
+        clipping_mask: Option<&ClippingMask<T>>,
     ) -> Result<VoronoiComponents<T>> {
         compute_voronoi_components(self, clipping_mask)
     }
 
-    fn compute_voronoi_diagram(&self, _clipping_mask: Option<&Polygon<T>>) -> Result<Vec<Polygon>> {
+    fn compute_voronoi_diagram(
+        &self,
+        _clipping_mask: Option<&ClippingMask<T>>,
+    ) -> Result<Vec<Polygon>> {
         todo!("Need to map the components to voronoi cells");
     }
 }
 
 fn compute_voronoi_components<T: GeoFloat, U: TriangulateDelaunay<T>>(
     polygon: &U,
-    clipping_mask: Option<&Polygon<T>>,
+    clipping_mask: Option<&ClippingMask<T>>,
 ) -> Result<VoronoiComponents<T>>
 where
     f64: From<T>,
@@ -70,10 +81,19 @@ where
         .delaunay_triangulation()
         .map_err(VoronoiDiagramError::DelaunayError)?;
 
+    if triangles.is_empty() {
+        return Ok(VoronoiComponents {
+            delaunay_triangles: vec![],
+            vertices: vec![],
+            lines: vec![],
+            neighbours: vec![],
+        });
+    }
+
     compute_voronoi_components_from_delaunay(&triangles, clipping_mask)
 }
 
-/// Compute the Voronoi Diagram from Delaunay Triangles
+/// Compute the Voronoi Diagram from Delaunay Triangles.
 /// The Voronoi Diagram is a [dual graph](https://en.wikipedia.org/wiki/Dual_graph)
 /// of the [Delaunay Triangulation](https://en.wikipedia.org/wiki/Delaunay_triangulation)
 /// and thus the Voronoi Diagram can be created from the Delaunay Triangulation.
@@ -84,10 +104,7 @@ pub fn compute_voronoi_components_from_delaunay<T: GeoFloat>(
 where
     f64: From<T>,
 {
-    let delaunay_triangles: Vec<DelaunayTriangle<T>> =
-        triangles.iter().map(|x| (*x).into()).collect();
-
-    if delaunay_triangles.is_empty() {
+    if triangles.is_empty() {
         return Ok(VoronoiComponents {
             delaunay_triangles: vec![],
             vertices: vec![],
@@ -97,14 +114,17 @@ where
     }
 
     let clipping_mask = match clipping_mask {
-        Some(mask) => mask.clone(),
+        Some(mask) => mask.to_owned(),
         None => create_clipping_mask(triangles)?,
     };
+
+    let delaunay_triangles: Vec<DelaunayTriangle<T>> =
+        triangles.iter().map(|x| (*x).into()).collect();
 
     // The centres of the delaunay circumcircles form the vertices of the
     // voronoi diagram
     let mut vertices: Vec<Coord<T>> = Vec::new();
-    for tri in delaunay_triangles.iter() {
+    for tri in &delaunay_triangles {
         vertices.push(
             tri.get_circumcircle_center()
                 .map_err(VoronoiDiagramError::DelaunayError)?,
@@ -116,7 +136,7 @@ where
 
     // Create the lines joining the vertices
     let mut voronoi_lines: Vec<Line<T>> = Vec::new();
-    for neighbour in shared.neighbours.iter() {
+    for neighbour in &shared.neighbours {
         if let (Some(first_vertex), Some(second_vertex)) = (neighbour.0, neighbour.1) {
             voronoi_lines.push(Line::new(vertices[first_vertex], vertices[second_vertex]));
         }
@@ -143,7 +163,7 @@ where
     f64: From<T>,
 {
     let mut pts: Vec<Point<T>> = Vec::new();
-    for tri in triangles.iter() {
+    for tri in triangles {
         pts.extend(tri.to_array().iter().map(|x| Point::from(*x)));
     }
     let bounds = MultiPoint::new(pts)
@@ -163,13 +183,16 @@ where
     )))
 }
 
+type Neighbor = (Option<usize>, Option<usize>);
+type Neighbors = Vec<Neighbor>;
+
 #[derive(Debug, Clone)]
-struct Neighbours<T: GeoFloat> {
-    pub neighbours: Vec<(Option<usize>, Option<usize>)>,
-    pub shared_edges: Vec<Line<T>>,
+struct SharedEdgesData<T: GeoFloat> {
+    neighbours: Neighbors,
+    shared_edges: Vec<Line<T>>,
 }
 
-fn find_shared_edges<T: GeoFloat>(triangles: &[DelaunayTriangle<T>]) -> Neighbours<T>
+fn find_shared_edges<T: GeoFloat>(triangles: &[DelaunayTriangle<T>]) -> SharedEdgesData<T>
 where
     f64: From<T>,
 {
@@ -201,17 +224,15 @@ where
 
     // For Voronoi diagrams, the triangles / circumcenters that are on the edge of the
     // diagram require connections to infinity to ensure separation of points between
-    // voronoi cells.
-    // Voronoi cells on the borders can have 2 connections to infinity
-    // These connections to infinity will be bounded later
-    // Add the connections from infinity
+    // voronoi cells. Voronoi cells on the borders can have 2 connections to infinity.
+    // These connections to infinity will be bounded later, for now add the connections from infinity.
     let mut num_neighbours: Vec<usize> = triangles.iter().map(|_| 0).collect();
-    neighbours.iter().for_each(|x| {
+    for x in &neighbours {
         // unwrap here is safe as neighbours do not contain None values yet
         for n in [x.0.unwrap(), x.1.unwrap()] {
             num_neighbours[n] += 1;
         }
-    });
+    }
 
     num_neighbours.iter().enumerate().for_each(|(idx, val)| {
         for _ in 0..3 - val {
@@ -219,7 +240,7 @@ where
         }
     });
 
-    Neighbours {
+    SharedEdgesData {
         neighbours,
         shared_edges,
     }
@@ -247,20 +268,21 @@ where
             x: f64::from(line.start.x) + f64::from(line.dx()) / 2.,
             y: f64::from(line.start.y) + f64::from(line.dy()) / 2.,
         };
-        let m = -1. / slope;
         // y = mx + b
-        let b = midpoint.y - m * midpoint.x;
+        let m = -1. / slope;
+        let b = m.mul_add(-midpoint.x, midpoint.y);
         let x = midpoint.x + f64::from(line.dx());
-        let y = m * x + b;
-        let x = T::from(x).ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
-        let y = T::from(y).ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
+        let y = m.mul_add(x, b);
+
+        let end_x = T::from(x).ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
+        let end_y = T::from(y).ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
         let start_x =
             T::from(midpoint.x).ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
         let start_y =
             T::from(midpoint.y).ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
         Ok(Line::new(
             coord! {x: start_x, y: start_y},
-            coord! {x: x, y: y},
+            coord! {x: end_x, y: end_y},
         ))
     }
 }
@@ -275,7 +297,7 @@ enum GuidingDirection {
 
 impl GuidingDirection {
     // The common point is the end co-ordinate of both lines
-    fn from_midpoints<T: GeoFloat>(line_a: &Line<T>, line_b: &Line<T>) -> GuidingDirection {
+    fn from_midpoints<T: GeoFloat>(line_a: &Line<T>, line_b: &Line<T>) -> Self {
         let dx_a = line_a.dx().is_sign_positive();
         let dy_a = line_a.dy().is_sign_positive();
         let dx_b = line_b.dx().is_sign_positive();
@@ -285,13 +307,13 @@ impl GuidingDirection {
         // to the left or right of the other midpoints, or
         // above of below the other midpoints
         if (dx_a == dx_b) && dx_a {
-            GuidingDirection::Right
+            Self::Right
         } else if (dx_a == dx_b) && !dx_a {
-            GuidingDirection::Left
+            Self::Left
         } else if (dy_a == dy_b) && dy_a {
-            GuidingDirection::Up
+            Self::Up
         } else {
-            GuidingDirection::Down
+            Self::Down
         }
     }
 }
@@ -352,11 +374,11 @@ where
                 _ => return Err(VoronoiDiagramError::UnexpectedDirectionForInfinityVertex),
             }
         } else {
-            let b = circumcenter.y - line.slope() * circumcenter.x;
+            let intercept = circumcenter.y - line.slope() * circumcenter.x;
             let end_x_neg = circumcenter.x - line.dx().abs() * width_factor;
-            let end_y_neg = line.slope() * end_x_neg + b;
+            let end_y_neg = line.slope() * end_x_neg + intercept;
             let end_x_pos = circumcenter.x + line.dx().abs() * width_factor;
-            let end_y_pos = line.slope() * end_x_pos + b;
+            let end_y_pos = line.slope() * end_x_pos + intercept;
 
             match guiding_direction {
                 GuidingDirection::Left => {
@@ -436,9 +458,8 @@ where
 
     // Get the vertices with connections to infinity
     let mut inf_lines: Vec<Line<T>> = Vec::new();
-    for neighbour in neighbours.iter() {
+    for neighbour in neighbours {
         if let (None, Some(tri_idx)) = (neighbour.0, neighbour.1) {
-            // Unwrap here is ok as the filtered vec can only be [None, Some(idx)]
             let inf_edge = define_edge_to_infinity(
                 &triangles[tri_idx],
                 &vertices[tri_idx],
@@ -532,10 +553,8 @@ impl fmt::Display for VoronoiDiagramError {
 
 #[cfg(test)]
 mod test {
-
-    use geo_types::polygon;
-
     use super::*;
+    use geo_types::polygon;
 
     #[test]
     fn test_find_shared_edge() {

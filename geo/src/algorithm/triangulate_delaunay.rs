@@ -65,9 +65,9 @@ where
 
         let mut triangles: Vec<DelaunayTriangle<T>> = vec![super_triangle.clone()];
         for pt in self.exterior().coords() {
-            add_point(&mut triangles, pt)?;
+            add_coordinate(&mut triangles, pt);
         }
-        remove_super_triangle(&mut triangles, &super_triangle);
+        let triangles = remove_super_triangle(&triangles, &super_triangle);
         Ok(triangles.iter().map(|x| x.0).collect())
     }
 }
@@ -112,7 +112,7 @@ fn find_line<T: GeoFloat>(line: &Line<T>, lines: &[Line<T>]) -> Option<usize> {
     None
 }
 
-fn add_point<T: GeoFloat>(triangles: &mut Vec<DelaunayTriangle<T>>, c: &Coord<T>) -> Result<()>
+fn add_coordinate<T: GeoFloat>(triangles: &mut Vec<DelaunayTriangle<T>>, c: &Coord<T>)
 where
     f64: From<T>,
 {
@@ -128,25 +128,22 @@ where
 
     let mut bad_triangle_edges: Vec<Line<T>> = Vec::new();
     let mut bad_triangle_edge_count: Vec<u128> = Vec::new();
-    bad_triangles.iter().for_each(|x| {
-        x.0.to_lines().iter().for_each(|y| {
+    for x in &bad_triangles {
+        for y in x.0.to_lines() {
             let flipped_y = Line::new(y.end, y.start);
             let idx =
-                find_line(y, &bad_triangle_edges).or(find_line(&flipped_y, &bad_triangle_edges));
-            match idx {
-                Some(idx) => {
-                    // The unwrap is acceptable due to the push lines below.
-                    let count = bad_triangle_edge_count.get_mut(idx).unwrap();
-                    *count += 1;
-                }
-                None => {
-                    // These two vectors must be updated at the same time
-                    bad_triangle_edges.push(*y);
-                    bad_triangle_edge_count.push(1);
-                }
+                find_line(&y, &bad_triangle_edges).or(find_line(&flipped_y, &bad_triangle_edges));
+            if let Some(idx) = idx {
+                // The unwrap is acceptable due to the push lines below.
+                let count = bad_triangle_edge_count.get_mut(idx).unwrap();
+                *count += 1;
+            } else {
+                // These two vectors must be updated at the same time
+                bad_triangle_edges.push(y);
+                bad_triangle_edge_count.push(1);
             }
-        })
-    });
+        }
+    }
 
     // Shared edges are those with a count of > 1
     let polygon: Vec<Line<T>> = bad_triangle_edge_count
@@ -170,14 +167,12 @@ where
     // Replace the triangles
     triangles.clear();
     new_triangles.iter().for_each(|x| triangles.push(x.clone()));
-
-    Ok(())
 }
 
 fn remove_super_triangle<T: GeoFloat>(
-    triangles: &mut Vec<DelaunayTriangle<T>>,
+    triangles: &[DelaunayTriangle<T>],
     super_triangle: &DelaunayTriangle<T>,
-) {
+) -> Vec<DelaunayTriangle<T>> {
     let mut new_triangles: Vec<DelaunayTriangle<T>> = Vec::new();
     let super_tri_vertices = super_triangle.0.to_array();
 
@@ -192,12 +187,10 @@ fn remove_super_triangle<T: GeoFloat>(
             new_triangles.push(tri.clone())
         }
     }
-
-    triangles.clear();
-    new_triangles.iter().for_each(|x| triangles.push(x.clone()));
+    new_triangles
 }
 
-/// A triangle structure used during Delaunay Triangulation
+/// A triangle structure used during Delaunay Triangulation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DelaunayTriangle<T: GeoFloat>(Triangle<T>);
 
@@ -223,7 +216,7 @@ where
     f64: From<T>,
 {
     #[cfg(feature = "voronoi")]
-    /// Check if a `DelaunayTriangle` shares at least one vertex
+    /// Check if a `DelaunayTriangle` shares at least one vertex.
     pub fn shares_vertex(&self, other: &DelaunayTriangle<T>) -> bool {
         let other_vertices = other.0.to_array();
         for vertex in self.0.to_array().iter() {
@@ -237,7 +230,7 @@ where
     #[cfg(feature = "voronoi")]
     /// Check if a `DelaunayTriangle` is a neighbour i.e.
     /// shares an edge.
-    /// If the triangles are neighbours the shared edge is returned
+    /// If the triangles are neighbours the shared edge is returned.
     pub fn shares_edge(&self, other: &DelaunayTriangle<T>) -> Option<Line<T>> {
         let other_lines = other.0.to_lines();
         for line in self.0.to_lines().iter() {
@@ -349,12 +342,9 @@ impl fmt::Display for DelaunayTriangulationError {
 
 #[cfg(test)]
 mod test {
-
-    use geo_types::{LineString, MultiPoint, Point};
-
-    use crate::Contains;
-
     use super::*;
+    use crate::Contains;
+    use geo_types::{LineString, MultiPoint, Point};
 
     #[test]
     fn test_triangle_shares_vertex() {
@@ -484,7 +474,7 @@ mod test {
             )),
         ];
 
-        add_point(&mut triangles, &coord! {x: 0., y: 0.}).unwrap();
+        add_coordinate(&mut triangles, &coord! {x: 0., y: 0.});
 
         assert_eq!(expected_result, triangles);
     }
