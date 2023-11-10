@@ -32,6 +32,9 @@
   * <https://github.com/georust/geo/pull/1083>
 * Add `len()` and `is_empty()` to `MultiPoint`
   * <https://github.com/georust/geo/pull/1109>
+  <https://github.com/georust/geo/pull/1063>
+* Add `TriangulateDelaunay` and `VoronoiDiagram` traits.
+  * <https://github.com/franklin-ai/geo/pull/2>
 
 ## 0.26.0
 
