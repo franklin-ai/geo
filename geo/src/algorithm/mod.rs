@@ -257,6 +257,7 @@ pub use triangulate_earcut::TriangulateEarcut;
 pub mod triangulate_spade;
 #[cfg(feature = "spade")]
 pub use triangulate_spade::TriangulateSpade;
+
 #[cfg(feature = "delaunay")]
 pub mod triangulate_delaunay;
 #[cfg(feature = "delaunay")]
