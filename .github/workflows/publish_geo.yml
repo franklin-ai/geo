@@ -1,0 +1,40 @@
+# yamllint disable rule:truthy
+# yamllint disable rule:empty-lines
+# Publish geo fork in cloudsmith
+---
+    name: Publish Geo 
+    
+    on:
+      push:
+        # branches:
+        #   - franklin-enhancements 
+
+    
+    jobs:
+      deploy:
+        name: Publish package to cloudsmith
+        runs-on: ubuntu-22.04
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v3
+    
+          - uses: actions/cache@v3
+            with:
+              path: |
+                ~/.cargo/bin/
+                ~/.cargo/registry/index/
+                ~/.cargo/registry/cache/
+                ~/.cargo/git/db/
+                ~/.cargo/advisory-dbs/
+                target/
+              key: ${{ runner.os }}-deploy-${{ hashFiles('**/Cargo.lock') }}
+              restore-keys: |
+                ${{ runner.os }}-deploy
+    
+          - name: Login to cloudsmith
+            run: |
+              git config --global credential.helper store
+              echo "https://${{ secrets.ROSALIND_CLOUDSMITH_USERNAME }}:${{ secrets.ROSALIND_CLOUDSMITH_API }}@dl.cloudsmith.io" > ~/.git-credentials
+    
+          - name: Package & Deploy
+            run: cargo +stable publish -p geo --registry franklin-ai-geo --token ${{ secrets.ROSALIND_CLOUDSMITH_API }}
