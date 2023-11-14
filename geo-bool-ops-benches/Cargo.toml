@@ -7,7 +7,10 @@ edition = "2021"
 
 [dependencies]
 geo = { path = "../geo" }
-geo-types = { path = "../geo-types" }
+geo-types = { version = "0.7.11", features = [
+    "approx",
+    "use-rstar_0_11",
+], registry = "franklin-ai-geo" }
 log = "0.4.11"
 
 [dev-dependencies]
