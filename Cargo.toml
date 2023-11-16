@@ -13,7 +13,4 @@ members = [
 
 # Ensure any transitive dependencies also use the local geo/geo-types
 geo = { path = "geo" }
-geo-types = { version = "0.7.11", features = [
-  "approx",
-  "use-rstar_0_11",
-], registry = "franklin-ai-geo" }
+geo-types = { path = "geo-types" }

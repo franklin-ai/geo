@@ -6,11 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-geo = { path = "../geo" }
-geo-types = { version = "0.7.11", features = [
-    "approx",
-    "use-rstar_0_11",
-], registry = "franklin-ai-geo" }
+geo-types = { version = "0.7.12", features = ["approx", "use-rstar_0_11"] }
 log = "0.4.11"
 
 [dev-dependencies]
