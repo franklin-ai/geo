@@ -11,6 +11,8 @@ use crate::{BoundingRect, TriangulateDelaunay};
 
 type Result<T> = result::Result<T, VoronoiDiagramError>;
 
+pub const DEFAULT_SLOPE_THRESHOLD: f64 = 1e3;
+
 #[derive(Debug, Clone)]
 pub struct VoronoiComponents<T: GeoFloat> {
     pub delaunay_triangles: Vec<Triangle<T>>,
@@ -28,10 +30,12 @@ where
     fn compute_voronoi_components(
         &self,
         clipping_mask: Option<&ClippingMask<T>>,
+        slope_threshold: Option<T>,
     ) -> Result<VoronoiComponents<T>>;
     fn compute_voronoi_diagram(
         &self,
         clipping_mask: Option<&ClippingMask<T>>,
+        slope_threshold: Option<T>,
     ) -> Result<Vec<Polygon>>;
 }
 
@@ -42,13 +46,15 @@ where
     fn compute_voronoi_components(
         &self,
         clipping_mask: Option<&ClippingMask<T>>,
+        slope_threshold: Option<T>,
     ) -> Result<VoronoiComponents<T>> {
-        compute_voronoi_components(self, clipping_mask)
+        compute_voronoi_components(self, clipping_mask, slope_threshold)
     }
 
     fn compute_voronoi_diagram(
         &self,
         _clipping_mask: Option<&ClippingMask<T>>,
+        _slope_threshold: Option<T>,
     ) -> Result<Vec<Polygon>> {
         todo!("Need to map the components to voronoi cells");
     }
@@ -60,13 +66,15 @@ where
     fn compute_voronoi_components(
         &self,
         clipping_mask: Option<&ClippingMask<T>>,
+        slope_threshold: Option<T>,
     ) -> Result<VoronoiComponents<T>> {
-        compute_voronoi_components(self, clipping_mask)
+        compute_voronoi_components(self, clipping_mask, slope_threshold)
     }
 
     fn compute_voronoi_diagram(
         &self,
         _clipping_mask: Option<&ClippingMask<T>>,
+        _slope_threshold: Option<T>,
     ) -> Result<Vec<Polygon>> {
         todo!("Need to map the components to voronoi cells");
     }
@@ -75,6 +83,7 @@ where
 fn compute_voronoi_components<T: GeoFloat, U: TriangulateDelaunay<T>>(
     polygon: &U,
     clipping_mask: Option<&ClippingMask<T>>,
+    slope_threshold: Option<T>,
 ) -> Result<VoronoiComponents<T>>
 where
     f64: From<T>,
@@ -92,7 +101,7 @@ where
         });
     }
 
-    compute_voronoi_components_from_delaunay(&triangles, clipping_mask)
+    compute_voronoi_components_from_delaunay(&triangles, clipping_mask, slope_threshold)
 }
 
 /// Compute the Voronoi Diagram from Delaunay Triangles.
@@ -102,6 +111,7 @@ where
 pub fn compute_voronoi_components_from_delaunay<T: GeoFloat>(
     triangles: &[Triangle<T>],
     clipping_mask: Option<&Polygon<T>>,
+    slope_threshold: Option<T>,
 ) -> Result<VoronoiComponents<T>>
 where
     f64: From<T>,
@@ -150,6 +160,7 @@ where
         &mut shared.shared_edges,
         &shared.neighbours,
         &clipping_mask,
+        slope_threshold,
     )?);
 
     Ok(VoronoiComponents {
@@ -164,6 +175,9 @@ fn create_clipping_mask<T: GeoFloat>(triangles: &[Triangle<T>]) -> Result<Polygo
 where
     f64: From<T>,
 {
+    let expand_factor = T::from(DEFAULT_SUPER_TRIANGLE_EXPANSION)
+        .ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
+
     let mut pts: Vec<Point<T>> = Vec::new();
     for tri in triangles {
         pts.extend(tri.to_array().iter().map(|x| Point::from(*x)));
@@ -171,9 +185,6 @@ where
     let bounds = MultiPoint::new(pts)
         .bounding_rect()
         .ok_or(VoronoiDiagramError::CannotDetermineBoundsFromClipppingMask)?;
-
-    let expand_factor = T::from(DEFAULT_SUPER_TRIANGLE_EXPANSION)
-        .ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
 
     let width = bounds.width() * expand_factor;
     let height = bounds.height() * expand_factor;
@@ -366,16 +377,20 @@ fn get_inf_outside_triangle<T: GeoFloat>(
     triangle: &Triangle<T>,
     circumcenter: &Coord<T>,
     midpoint: &Coord<T>,
-    slope_threshold: &Option<T>,
+    slope_threshold: Option<T>,
 ) -> Result<Line<T>>
 where
     f64: From<T>,
 {
     let two = T::from(2.).ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
+    let default_thresh = T::from(DEFAULT_SLOPE_THRESHOLD)
+        .ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
+
+    let threshold = slope_threshold.unwrap_or(default_thresh);
 
     let tmp_line = Line::new(*midpoint, *circumcenter);
-    let slope_near_infinite = tmp_line.slope().abs() > T::from(1e3).unwrap();
-    let slope_near_zero = tmp_line.slope().abs() < T::from(1e-3).unwrap();
+    let slope_near_infinite = tmp_line.slope().is_infinite() || tmp_line.slope().abs() > threshold;
+    let slope_near_zero = tmp_line.slope().is_zero() || tmp_line.slope().abs() < threshold.powi(-1);
 
     // If the infinity line crosses one of the other lines of the triangle
     // the tmp_line needs to be flipped.
@@ -492,6 +507,7 @@ fn define_edge_to_infinity<T: GeoFloat>(
     triangle: &DelaunayTriangle<T>,
     circumcenter: &Coord<T>,
     shared_edges: &mut Vec<Line<T>>,
+    slope_threshold: Option<T>,
 ) -> Result<Option<Line<T>>>
 where
     f64: From<T>,
@@ -516,7 +532,7 @@ where
         let inf_line = match circumcenter_location {
             CircumCenterLocation::Inside => get_inf_inside_triangle(circumcenter, midpoint),
             CircumCenterLocation::Outside => {
-                get_inf_outside_triangle(&tri, circumcenter, midpoint)?
+                get_inf_outside_triangle(&tri, circumcenter, midpoint, slope_threshold)?
             }
             CircumCenterLocation::On => {
                 get_inf_on_midpoint_triangle(&tri, edge, circumcenter, midpoint)?
@@ -563,6 +579,7 @@ fn construct_edges_to_inf<T: GeoFloat>(
     edges: &mut Vec<Line<T>>,
     neighbours: &[(Option<usize>, Option<usize>)],
     clipping_mask: &Polygon<T>,
+    slope_threshold: Option<T>,
 ) -> Result<Vec<Line<T>>>
 where
     f64: From<T>,
@@ -571,8 +588,13 @@ where
     let mut inf_lines: Vec<Line<T>> = Vec::new();
     for neighbour in neighbours {
         if let (None, Some(tri_idx)) = (neighbour.0, neighbour.1) {
-            let inf_edge = define_edge_to_infinity(&triangles[tri_idx], &vertices[tri_idx], edges)?
-                .ok_or(VoronoiDiagramError::CannotComputeExpectedInfinityVertex)?;
+            let inf_edge = define_edge_to_infinity(
+                &triangles[tri_idx],
+                &vertices[tri_idx],
+                edges,
+                slope_threshold,
+            )?
+            .ok_or(VoronoiDiagramError::CannotComputeExpectedInfinityVertex)?;
             let inf_edge_dx_sign = inf_edge.dx().is_sign_positive();
             let inf_edge_dy_sign = inf_edge.dy().is_sign_positive();
 
@@ -936,7 +958,7 @@ mod test {
         let circumcenter = triangle.get_circumcircle_center().unwrap();
         let midpoint = coord! {x: 3., y: 0.};
         let inf_line =
-            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint).unwrap();
+            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint, None).unwrap();
         assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 3., y: -8.}));
 
         // Obtuse triangle inf line pointing up
@@ -954,7 +976,7 @@ mod test {
         let circumcenter = triangle.get_circumcircle_center().unwrap();
         let midpoint = coord! {x: 0., y: 1.};
         let inf_line =
-            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint).unwrap();
+            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint, None).unwrap();
         assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 0., y: 9.0}));
 
         // Obtuse triangle inf line pointing left
@@ -972,7 +994,7 @@ mod test {
         let circumcenter = triangle.get_circumcircle_center().unwrap();
         let midpoint = coord! {x: 0., y: 3.};
         let inf_line =
-            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint).unwrap();
+            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint, None).unwrap();
         assert_eq!(inf_line, Line::new(circumcenter, coord! {x: -8., y: 3.}));
 
         // Obtuse triangle at an angle pointing down
@@ -990,7 +1012,7 @@ mod test {
         let circumcenter = triangle.get_circumcircle_center().unwrap();
         let midpoint = coord! {x: 3., y: 3.};
         let inf_line =
-            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint).unwrap();
+            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint, None).unwrap();
         assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 3.5, y: 2.5}));
 
         // Obtuse triangle at an angle pointing up
@@ -1008,7 +1030,7 @@ mod test {
         let circumcenter = triangle.get_circumcircle_center().unwrap();
         let midpoint = coord! {x: 3., y: 3.};
         let inf_line =
-            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint).unwrap();
+            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint, None).unwrap();
         assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 2.5, y: 3.5}));
 
         // Circumcenter is outside triangle but infinity line
@@ -1027,7 +1049,7 @@ mod test {
         let circumcenter = triangle.get_circumcircle_center().unwrap();
         let midpoint = coord! {x: 18., y: 18.};
         let inf_line =
-            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint).unwrap();
+            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint, None).unwrap();
         assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 18., y: 18.}));
     }
 
@@ -1139,9 +1161,13 @@ mod test {
         ];
 
         for idx in 0..3 {
-            let perpendicular_line =
-                define_edge_to_infinity(&triangles[idx], &circumcenters[idx], &mut shared_edges)
-                    .unwrap();
+            let perpendicular_line = define_edge_to_infinity(
+                &triangles[idx],
+                &circumcenters[idx],
+                &mut shared_edges,
+                None,
+            )
+            .unwrap();
             assert_eq!(perpendicular_line.unwrap(), expected_infintity_lines[idx]);
         }
     }
@@ -1185,7 +1211,8 @@ mod test {
 
         let delaunay_triangles = poly.delaunay_triangulation().unwrap();
 
-        let voronoi = compute_voronoi_components_from_delaunay(&delaunay_triangles, None).unwrap();
+        let voronoi =
+            compute_voronoi_components_from_delaunay(&delaunay_triangles, None, None).unwrap();
 
         let expected_lines = vec![
             Line::new(coord! {x: 0.5, y: 0.5}, coord! {x: 0.5, y: 2.5}),
@@ -1215,7 +1242,7 @@ mod test {
         ];
 
         let triangles = poly.delaunay_triangulation().unwrap();
-        let voronoi = compute_voronoi_components_from_delaunay(&triangles, None).unwrap();
+        let voronoi = compute_voronoi_components_from_delaunay(&triangles, None, None).unwrap();
 
         let expected_vertices = [
             coord! {x: 1.0, y: 0.0},
@@ -1243,7 +1270,7 @@ mod test {
             (x: -1., y: 2.),
         ];
 
-        let voronoi = poly.compute_voronoi_components(None).unwrap();
+        let voronoi = poly.compute_voronoi_components(None, None).unwrap();
 
         let expected_lines = vec![
             Line::new(coord! {x: 0.5, y: 0.5}, coord! {x: 0.5, y: 2.5}),
@@ -1267,7 +1294,7 @@ mod test {
     #[test]
     fn test_single_point() {
         let poly = polygon![(x: 150., y: 200.)];
-        let voronoi = poly.compute_voronoi_components(None).unwrap();
+        let voronoi = poly.compute_voronoi_components(None, None).unwrap();
 
         assert!(voronoi.vertices.is_empty());
         assert!(voronoi.lines.is_empty());
@@ -1278,7 +1305,7 @@ mod test {
     fn test_simple() {
         let points = polygon![(x: 150., y: 200.), (x: 180., y: 270.), (x: 275., y: 163.)];
 
-        let voronoi = points.compute_voronoi_components(None).unwrap();
+        let voronoi = points.compute_voronoi_components(None, None).unwrap();
 
         let expected_vertices = [coord! {x: 211.205, y: 210.911}];
 
@@ -1300,7 +1327,7 @@ mod test {
             (x: 320., y: 160.)
         ];
 
-        let voronoi = points.compute_voronoi_components(None).unwrap();
+        let voronoi = points.compute_voronoi_components(None, None).unwrap();
 
         let expected_vertices = [
             coord! {x: 353.516, y: 298.594},
@@ -1342,7 +1369,7 @@ mod test {
             (x: 490., y: 160.)
         ];
 
-        let voronoi = points.compute_voronoi_components(None).unwrap();
+        let voronoi = points.compute_voronoi_components(None, None).unwrap();
 
         let expected_vertices = [
             coord! {x: 499.707, y: 265.},
@@ -1398,7 +1425,7 @@ mod test {
         let rhombus =
             polygon![(x: 10., y: 10.), (x: 11., y: 20.), (x: 20., y: 20.), (x: 19., y: 10.)];
 
-        let voronoi = rhombus.compute_voronoi_components(None).unwrap();
+        let voronoi = rhombus.compute_voronoi_components(None, None).unwrap();
 
         let expected_vertices = [coord! { x: 14.5, y: 14.6}, coord! { x: 15.5, y: 15.4}];
         let expected_lines = [
@@ -1440,7 +1467,7 @@ mod test {
             vec![],
         );
 
-        let voronoi = poly.compute_voronoi_components(None).unwrap();
+        let voronoi = poly.compute_voronoi_components(None, None).unwrap();
 
         let expected_vertices = [
             coord! { x: 10.8, y: 19.0 },
@@ -1638,7 +1665,7 @@ mod test {
             vec![],
         );
 
-        let voronoi = poly.compute_voronoi_components(None).unwrap();
+        let voronoi = poly.compute_voronoi_components(None, None).unwrap();
 
         let expected_vertices = [
             coord! { x: 13.458641975308646, y: 17.22913580246913 },
@@ -2111,7 +2138,7 @@ mod test {
             ),
         ];
 
-        let voronoi = poly.compute_voronoi_components(None).unwrap();
+        let voronoi = poly.compute_voronoi_components(None, None).unwrap();
 
         relative_voronoi_compare(&voronoi, &expected_vertices, &expected_lines);
     }
