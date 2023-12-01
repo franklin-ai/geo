@@ -373,6 +373,24 @@ where
     Line::new(*circumcenter, end)
 }
 
+fn is_slope_near_zero_or_inf<T: GeoFloat>(
+    line: &Line<T>,
+    slope_threshold: Option<T>,
+) -> Result<(bool, bool)>
+where
+    f64: From<T>,
+{
+    let default_thresh = T::from(DEFAULT_SLOPE_THRESHOLD)
+        .ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
+
+    let threshold = slope_threshold.unwrap_or(default_thresh);
+
+    let slope_near_infinite = line.slope().is_infinite() || line.slope().abs() > threshold;
+    let slope_near_zero = line.slope().is_zero() || line.slope().abs() < threshold.powi(-1);
+
+    Ok((slope_near_zero, slope_near_infinite))
+}
+
 fn get_inf_outside_triangle<T: GeoFloat>(
     triangle: &Triangle<T>,
     circumcenter: &Coord<T>,
@@ -383,14 +401,9 @@ where
     f64: From<T>,
 {
     let two = T::from(2.).ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
-    let default_thresh = T::from(DEFAULT_SLOPE_THRESHOLD)
-        .ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
-
-    let threshold = slope_threshold.unwrap_or(default_thresh);
-
     let tmp_line = Line::new(*midpoint, *circumcenter);
-    let slope_near_infinite = tmp_line.slope().is_infinite() || tmp_line.slope().abs() > threshold;
-    let slope_near_zero = tmp_line.slope().is_zero() || tmp_line.slope().abs() < threshold.powi(-1);
+    let (slope_near_zero, slope_near_infinite) =
+        is_slope_near_zero_or_inf(&tmp_line, slope_threshold)?;
 
     // If the infinity line crosses one of the other lines of the triangle
     // the tmp_line needs to be flipped.
@@ -595,32 +608,25 @@ where
                 slope_threshold,
             )?
             .ok_or(VoronoiDiagramError::CannotComputeExpectedInfinityVertex)?;
-            let inf_edge_dx_sign = inf_edge.dx().is_sign_positive();
-            let inf_edge_dy_sign = inf_edge.dy().is_sign_positive();
+            let inf_edge_dx_sign = inf_edge.dx().is_positive();
+            let inf_edge_dy_sign = inf_edge.dy().is_positive();
+            let (inf_edge_slope_near_zero, inf_edge_slope_near_inf) =
+                is_slope_near_zero_or_inf(&inf_edge, slope_threshold)?;
 
             // Get the clipping mask line where the inf_vertex intersects
-            let intersection_lines: Vec<Line<T>> = clipping_mask
-                .exterior()
-                .lines()
-                .map(|x| trim_line_to_intersection(&inf_edge, &x))
-                .filter(|x| x.is_some())
-                .flatten()
-                .collect();
-            let intersection_lines: Vec<Line<T>> = intersection_lines
-                .iter()
-                // Get the lines going in the same direction as the inf_edge
-                .filter(|x| {
-                    if inf_edge.slope().is_infinite() {
-                        x.dy().is_sign_positive() == inf_edge_dy_sign
-                    } else if inf_edge.slope().is_zero() {
-                        x.dx().is_sign_positive() == inf_edge_dx_sign
-                    } else {
-                        x.dy().is_sign_positive() == inf_edge_dy_sign
-                            && x.dx().is_sign_positive() == inf_edge_dx_sign
+            let mut intersection_lines: Vec<Line<T>> = Vec::new();
+            for line in clipping_mask.exterior().lines() {
+                if let Some(inf_line) = trim_line_to_intersection(&inf_edge, &line) {
+                    let same_dx = inf_line.dx().is_positive() == inf_edge_dx_sign;
+                    let same_dy = inf_line.dy().is_positive() == inf_edge_dy_sign;
+                    if (inf_edge_slope_near_zero && same_dx)
+                        || (inf_edge_slope_near_inf && same_dy)
+                        || (same_dx && same_dy)
+                    {
+                        intersection_lines.push(inf_line);
                     }
-                })
-                .cloned()
-                .collect();
+                }
+            }
             let line_idx = if intersection_lines.len() > 1 {
                 // get the shortest line
                 let mut min_length: f64 = f64::INFINITY;
@@ -636,11 +642,14 @@ where
             } else {
                 0
             };
-            let intersection_line = intersection_lines
-                .get(line_idx)
-                .ok_or(VoronoiDiagramError::InvalidClippingMaskNoIntersections)?;
 
-            inf_lines.push(*intersection_line);
+            if let Some(line) = intersection_lines.get(line_idx) {
+                inf_lines.push(*line);
+            } else {
+                // There is no intersection, the infinity line could be
+                // outside the bounds of the clipping mask
+                inf_lines.push(inf_edge);
+            }
         }
     }
     Ok(inf_lines)
@@ -653,10 +662,7 @@ pub enum VoronoiDiagramError {
     CannotDetermineBoundsFromClipppingMask,
     CannotComputeExpectedInfinityVertex,
     CannotDetermineCircumcenterPosition,
-    InvalidClippingMaskMultipleIntersections,
-    InvalidClippingMaskNoIntersections,
     InvalidTriangulation,
-    UnexpectedDirectionForInfinityVertex,
 }
 
 impl fmt::Display for VoronoiDiagramError {
@@ -680,27 +686,12 @@ impl fmt::Display for VoronoiDiagramError {
                     "Cannot compute if the circumcenter is inside, outside or on the triangle"
                 )
             }
-            VoronoiDiagramError::InvalidClippingMaskMultipleIntersections => {
-                write!(
-                    f,
-                    "An edge to infinity intersects with multiple lines in the clipping mask"
-                )
-            }
-            VoronoiDiagramError::InvalidClippingMaskNoIntersections => {
-                write!(
-                    f,
-                    "An edge to infinity does not intersect with the clipping mask"
-                )
-            }
             VoronoiDiagramError::InvalidTriangulation => {
                 write!(
                     f,
                     "The provided triangles are not valid Delaunay Triangles. \
                     More than 3 connections have been found for a triangle vertex."
                 )
-            }
-            VoronoiDiagramError::UnexpectedDirectionForInfinityVertex => {
-                write!(f, "The direction of the infinity vertex is unexpected")
             }
         }
     }
