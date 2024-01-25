@@ -31,7 +31,7 @@ pub struct VoronoiComponents<T: GeoFloat> {
     /// This is an index of Delaunay triangles that are / have neighours
     /// the first value is the index of the triangle and the second value
     /// is the index of a neighbouring triangle.
-    /// If the triangle does not have a neighbour the value is None.
+    /// If the triangle does not have a neighbour the value is `None`.
     pub neighbours: Vec<(Option<usize>, Option<usize>)>,
 }
 
@@ -39,7 +39,7 @@ pub struct VoronoiComponents<T: GeoFloat> {
 /// the Voronoi diagram.
 pub type ClippingMask<T> = Polygon<T>;
 
-/// Compute the Voronoi Diagram for a given set of points.
+/// Compute the Voronoi diagram for a given set of points.
 /// This method uses the property that Delaunay triangulation
 /// [is a dual graph](https://en.wikipedia.org/wiki/Delaunay_triangulation#Relationship_with_the_Voronoi_diagram)
 /// of the Voronoi diagram.
@@ -379,7 +379,7 @@ impl CircumCentreLocation {
     }
 }
 
-// Get the inifinity line from inside to outside the triangle
+// Get the inifinity line from inside to outside the triangle.
 // Infinity lines that start from within the triangle to outside
 // need to start at the circumcentre and move towards infinity.
 fn get_inf_line_in_out_triangle<T: GeoFloat>(tmp_line: Line<T>, circumcentre: &Coord<T>) -> Line<T>
@@ -419,7 +419,7 @@ where
 }
 
 // Get the infinity line that lies outside of the
-// Delaunay triangle
+// Delaunay triangle.
 fn get_inf_outside_triangle<T: GeoFloat>(
     triangle: &Triangle<T>,
     circumcentre: &Coord<T>,
@@ -626,7 +626,7 @@ where
     Some(Line::new(inf_line.start, coord! { x: p_x, y: p_y}))
 }
 
-// Construct the edges to infinity
+// Construct the edges to infinity.
 fn construct_edges_to_inf<T: GeoFloat>(
     triangles: &[DelaunayTriangle<T>],
     vertices: &[Coord<T>],
@@ -696,11 +696,11 @@ where
     Ok(inf_lines)
 }
 
-/// Voronoi Diagram Errors
+/// Voronoi diagram errors.
 #[derive(Debug, PartialEq, Eq)]
 pub enum VoronoiDiagramError {
-    /// An error occurred when attempting to complete Delaunay Triangulation
-    /// before computing the Voronoi Diagram.
+    /// An error occurred when attempting to complete Delaunay triangulation
+    /// before computing the Voronoi diagram.
     DelaunayError(DelaunayTriangulationError),
     /// This error occurs when a value cannot be converted to the core
     /// number type of the [`Polygon`] or [`MultiPoint`] being used to generate
@@ -1101,9 +1101,7 @@ mod test {
 
     #[test]
     fn test_inf_on_midpoint_triangle() {
-        // The midpoint falls on the circumcentre for
-        // right triangles
-        // Triangle facing left
+        // The midpoint falls on the circumcentre for right triangles.
         let triangle = Triangle::new(
             coord! {x: 0., y:0.},
             coord! {x: 0., y: 3.},
