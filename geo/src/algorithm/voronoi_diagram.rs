@@ -4,12 +4,12 @@ use geo_types::coord;
 
 use crate::{Coord, EuclideanLength, GeoFloat, Line, MultiPoint, Point, Polygon, Rect, Triangle};
 
-use crate::triangulate_delaunay::{
-    DelaunayTriangle, DelaunayTriangulationError, DEFAULT_SUPER_TRIANGLE_EXPANSION,
-};
+use crate::triangulate_delaunay::{DelaunayTriangle, DelaunayTriangulationError};
 use crate::{BoundingRect, TriangulateDelaunay};
 
 type Result<T> = result::Result<T, VoronoiDiagramError>;
+
+const DEFAULT_CLIPPING_MASK_EXPANSION: f64 = 20.;
 
 /// The default value for determining if the slope of a line is
 /// near zero or near infinite.
@@ -19,16 +19,16 @@ type Result<T> = result::Result<T, VoronoiDiagramError>;
 /// A near zero slope is less than `1 / DEFAULT_SLOPE_THRESHOLD`.
 pub const DEFAULT_SLOPE_THRESHOLD: f64 = 1e3;
 
-/// The components of a Voronoi Diagram
+/// The components of a Voronoi Diagram.
 #[derive(Debug, Clone)]
 pub struct VoronoiComponents<T: GeoFloat> {
-    /// The Delaunay Triangles used to construct the Voronoi Diagram
+    /// The Delaunay Triangles used to construct the Voronoi diagram.
     pub delaunay_triangles: Vec<Triangle<T>>,
-    /// The vertices of the Voronoi Diagram
+    /// The vertices of the Voronoi diagram.
     pub vertices: Vec<Coord<T>>,
-    /// The lines of the Voronoi Diagram
+    /// The lines of the Voronoi diagram.
     pub lines: Vec<Line<T>>,
-    /// This is an index of Delaunay Triangles that are / have neighours
+    /// This is an index of Delaunay triangles that are / have neighours
     /// the first value is the index of the triangle and the second value
     /// is the index of a neighbouring triangle.
     /// If the triangle does not have a neighbour the value is None.
@@ -36,23 +36,23 @@ pub struct VoronoiComponents<T: GeoFloat> {
 }
 
 /// The clipping mask used to trim the infinity lines of
-/// the Voronoi Diagram.
+/// the Voronoi diagram.
 pub type ClippingMask<T> = Polygon<T>;
 
 /// Compute the Voronoi Diagram for a given set of points.
-/// This method uses the property that Delaunay Triangulation
+/// This method uses the property that Delaunay triangulation
 /// [is a dual graph](https://en.wikipedia.org/wiki/Delaunay_triangulation#Relationship_with_the_Voronoi_diagram)
-/// of the Voronoi Diagram.
+/// of the Voronoi diagram.
 pub trait VoronoiDiagram<T: GeoFloat>
 where
     f64: From<T>,
 {
-    /// Compute the Voronoi Diagram components with a clipping mask to trim infinity lines.
+    /// Compute the Voronoi diagram components with a clipping mask to trim infinity lines.
     /// If `clipping_mask` is set to None, one will be computed by expanding the geometry's
     /// bounding box.
     ///
     /// The `slope_threshold` is used when creating the infinity lines to determine lines with a slope
-    /// of near zero or near infinity.  If `slope_threshold` is set to None, [DEFAULT_SLOPE_THRESHOLD] will
+    /// of near zero or near infinity.  If `slope_threshold` is set to None, [`DEFAULT_SLOPE_THRESHOLD`] will
     /// be used.
     ///
     /// # Example
@@ -126,10 +126,10 @@ where
     compute_voronoi_components_from_delaunay(&triangles, clipping_mask, slope_threshold)
 }
 
-/// Compute the Voronoi Diagram from Delaunay Triangles.
-/// The Voronoi Diagram is a [dual graph](https://en.wikipedia.org/wiki/Dual_graph)
-/// of the [Delaunay Triangulation](https://en.wikipedia.org/wiki/Delaunay_triangulation)
-/// and thus the Voronoi Diagram can be created from the Delaunay Triangulation.
+/// Compute the Voronoi diagram from Delaunay triangles.
+/// The Voronoi diagram is a [dual graph](https://en.wikipedia.org/wiki/Dual_graph)
+/// of the [Delaunay triangulation](https://en.wikipedia.org/wiki/Delaunay_triangulation)
+/// and thus the Voronoi diagram can be created from the Delaunay triangulation.
 fn compute_voronoi_components_from_delaunay<T: GeoFloat>(
     triangles: &[Triangle<T>],
     clipping_mask: Option<&Polygon<T>>,
@@ -160,7 +160,7 @@ where
     let mut vertices: Vec<Coord<T>> = Vec::new();
     for tri in &delaunay_triangles {
         let vertex = tri
-            .get_circumcircle_center()
+            .get_circumcircle_centre()
             .map_err(VoronoiDiagramError::DelaunayError)?;
         vertices.push(vertex);
     }
@@ -176,6 +176,7 @@ where
         }
     }
 
+    // Create the lines to infinity
     voronoi_lines.extend(construct_edges_to_inf(
         &delaunay_triangles,
         &vertices,
@@ -197,7 +198,7 @@ fn create_clipping_mask<T: GeoFloat>(triangles: &[Triangle<T>]) -> Result<Polygo
 where
     f64: From<T>,
 {
-    let expand_factor = T::from(DEFAULT_SUPER_TRIANGLE_EXPANSION)
+    let expand_factor = T::from(DEFAULT_CLIPPING_MASK_EXPANSION)
         .ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
 
     let mut pts: Vec<Point<T>> = Vec::new();
@@ -218,6 +219,7 @@ where
     )))
 }
 
+// types to make clippy happy
 type Neighbour = (Option<usize>, Option<usize>);
 type Neighbours = Vec<Neighbour>;
 
@@ -257,7 +259,7 @@ where
         }
     }
 
-    // For Voronoi diagrams, the triangles / circumcenters that are on the edge of the
+    // For Voronoi diagrams, the triangles / circumcentres that are on the edge of the
     // diagram require connections to infinity to ensure separation of points between
     // voronoi cells. Voronoi cells on the borders can have 2 connections to infinity.
     // These connections to infinity will be bounded later, for now add the connections from infinity.
@@ -334,18 +336,18 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum CircumCenterLocation {
+enum CircumCentreLocation {
     Inside,
     Outside,
     On,
 }
 
-impl CircumCenterLocation {
-    pub fn from_triangle<T: GeoFloat>(triangle: &Triangle<T>) -> Result<CircumCenterLocation>
+impl CircumCentreLocation {
+    pub fn from_triangle<T: GeoFloat>(triangle: &Triangle<T>) -> Result<CircumCentreLocation>
     where
         f64: From<T>,
     {
-        // Determine if the triangle contains its circumcenter
+        // Determine if the triangle contains its circumcentre
         // https://en.wikipedia.org/wiki/Circumcircle#Location_relative_to_the_triangle
         // Use the cosine rule to determine the angles
         let corners = triangle.to_array();
@@ -366,33 +368,36 @@ impl CircumCenterLocation {
         let is_right_triangle = angles.iter().any(|x| ((*x) - FRAC_PI_2).abs() < 0.00001);
 
         Ok(if is_right_triangle {
-            CircumCenterLocation::On
+            CircumCentreLocation::On
         } else if is_acute_triangle {
-            CircumCenterLocation::Inside
+            CircumCentreLocation::Inside
         } else if is_obtuse_triangle {
-            CircumCenterLocation::Outside
+            CircumCentreLocation::Outside
         } else {
-            return Err(VoronoiDiagramError::CannotDetermineCircumcenterPosition);
+            return Err(VoronoiDiagramError::CannotDetermineCircumcentrePosition);
         })
     }
 }
 
-fn get_inf_line_in_out_triangle<T: GeoFloat>(tmp_line: Line<T>, circumcenter: &Coord<T>) -> Line<T>
+// Get the inifinity line from inside to outside the triangle
+// Infinity lines that start from within the triangle to outside
+// need to start at the circumcentre and move towards infinity.
+fn get_inf_line_in_out_triangle<T: GeoFloat>(tmp_line: Line<T>, circumcentre: &Coord<T>) -> Line<T>
 where
     f64: From<T>,
 {
     let slope = tmp_line.slope();
     let end = if slope.is_infinite() {
-        let end_x = circumcenter.x;
-        let end_y = circumcenter.y + tmp_line.dy();
+        let end_x = circumcentre.x;
+        let end_y = circumcentre.y + tmp_line.dy();
         coord! {x: end_x, y: end_y}
     } else {
-        let intercept = circumcenter.y - slope * circumcenter.x;
-        let end_x = circumcenter.x + tmp_line.dx();
+        let intercept = circumcentre.y - slope * circumcentre.x;
+        let end_x = circumcentre.x + tmp_line.dx();
         let end_y = slope * end_x + intercept;
         coord! {x: end_x, y: end_y}
     };
-    Line::new(*circumcenter, end)
+    Line::new(*circumcentre, end)
 }
 
 fn is_slope_near_zero_or_inf<T: GeoFloat>(
@@ -413,9 +418,11 @@ where
     Ok((slope_near_zero, slope_near_infinite))
 }
 
+// Get the infinity line that lies outside of the
+// Delaunay triangle
 fn get_inf_outside_triangle<T: GeoFloat>(
     triangle: &Triangle<T>,
-    circumcenter: &Coord<T>,
+    circumcentre: &Coord<T>,
     midpoint: &Coord<T>,
     slope_threshold: Option<T>,
 ) -> Result<Line<T>>
@@ -423,7 +430,7 @@ where
     f64: From<T>,
 {
     let two = T::from(2.).ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
-    let tmp_line = Line::new(*midpoint, *circumcenter);
+    let tmp_line = Line::new(*midpoint, *circumcentre);
     let (slope_near_zero, slope_near_infinite) =
         is_slope_near_zero_or_inf(&tmp_line, slope_threshold)?;
 
@@ -468,22 +475,22 @@ where
     }
 
     let tmp_line = if intersections.contains(&true) {
-        Line::new(*circumcenter, *midpoint)
+        Line::new(*circumcentre, *midpoint)
     } else {
         tmp_line
     };
 
-    Ok(get_inf_line_in_out_triangle(tmp_line, circumcenter))
+    Ok(get_inf_line_in_out_triangle(tmp_line, circumcentre))
 }
 
-fn get_inf_inside_triangle<T: GeoFloat>(circumcenter: &Coord<T>, midpoint: &Coord<T>) -> Line<T>
+fn get_inf_inside_triangle<T: GeoFloat>(circumcentre: &Coord<T>, midpoint: &Coord<T>) -> Line<T>
 where
     f64: From<T>,
 {
-    get_inf_line_in_out_triangle(Line::new(*circumcenter, *midpoint), circumcenter)
+    get_inf_line_in_out_triangle(Line::new(*circumcentre, *midpoint), circumcentre)
 }
 
-fn get_incenter<T: GeoFloat>(triangle: &Triangle<T>) -> Coord<T>
+fn get_incentre<T: GeoFloat>(triangle: &Triangle<T>) -> Coord<T>
 where
     f64: From<T>,
 {
@@ -506,41 +513,46 @@ where
 fn get_inf_on_midpoint_triangle<T: GeoFloat>(
     triangle: &Triangle<T>,
     edge: &Line<T>,
-    circumcenter: &Coord<T>,
+    circumcentre: &Coord<T>,
     midpoint: &Coord<T>,
 ) -> Result<Line<T>>
 where
     f64: From<T>,
 {
-    // The midpoint is on the circumcenter so we need to use the other midpoints to determine direction
-    if midpoint == circumcenter {
+    // The midpoint is on the circumcentre so we need to use the other midpoints to determine direction
+    if midpoint == circumcentre {
         // Construct the perpendicular line
         let line: Line<T> = get_perpendicular_line(edge)?;
-        let incenter = get_incenter(triangle);
-        let guiding_line = Line::new(incenter, *circumcenter);
+        let incentre = get_incentre(triangle);
+        let guiding_line = Line::new(incentre, *circumcentre);
         let end_x = if guiding_line.dx().is_negative() {
-            circumcenter.x - line.dx().abs()
+            circumcentre.x - line.dx().abs()
         } else {
-            circumcenter.x + line.dx().abs()
+            circumcentre.x + line.dx().abs()
         };
         let end_y = if guiding_line.dy().is_negative() {
-            circumcenter.y - line.dy().abs()
+            circumcentre.y - line.dy().abs()
         } else {
-            circumcenter.y + line.dy().abs()
+            circumcentre.y + line.dy().abs()
         };
-        Ok(Line::new(*circumcenter, coord! {x: end_x, y: end_y}))
-        // The midpoint is not on the circumcenter so we can use the standard in triangle method
+        Ok(Line::new(*circumcentre, coord! {x: end_x, y: end_y}))
+        // The midpoint is not on the circumcentre so we can use the standard in triangle method
     } else {
         Ok(get_inf_line_in_out_triangle(
-            Line::new(*circumcenter, *midpoint),
-            circumcenter,
+            Line::new(*circumcentre, *midpoint),
+            circumcentre,
         ))
     }
 }
 
+// Edges to infinity need to start from the circumcentre and travel
+// outwards from the Delaunay triangle to infinity, passing through
+// the midpoint of the outer line of the triangle.
+// This function constructs these lines, accounting for the
+// various positions of the midpoints and circumcentres.
 fn define_edge_to_infinity<T: GeoFloat>(
     triangle: &DelaunayTriangle<T>,
-    circumcenter: &Coord<T>,
+    circumcentre: &Coord<T>,
     shared_edges: &mut Vec<Line<T>>,
     slope_threshold: Option<T>,
 ) -> Result<Option<Line<T>>>
@@ -562,15 +574,21 @@ where
             continue;
         }
 
-        let circumcenter_location = CircumCenterLocation::from_triangle(&tri)?;
+        let circumcentre_location = CircumCentreLocation::from_triangle(&tri)?;
 
-        let inf_line = match circumcenter_location {
-            CircumCenterLocation::Inside => get_inf_inside_triangle(circumcenter, midpoint),
-            CircumCenterLocation::Outside => {
-                get_inf_outside_triangle(&tri, circumcenter, midpoint, slope_threshold)?
+        let inf_line = match circumcentre_location {
+            // The circumcentre lies inside the triangle so compute accordingly.
+            CircumCentreLocation::Inside => get_inf_inside_triangle(circumcentre, midpoint),
+            // The circumcentre lies outside the triangle, use the slope threshold to determine if the
+            // lines are horizontal or vertical.
+            CircumCentreLocation::Outside => {
+                get_inf_outside_triangle(&tri, circumcentre, midpoint, slope_threshold)?
             }
-            CircumCenterLocation::On => {
-                get_inf_on_midpoint_triangle(&tri, edge, circumcenter, midpoint)?
+            // The midpoint of the outer edge lies on the circumcentre of the triangle.
+            // Need to ensure the line is passing outward and not through the triangle to
+            // infinity.
+            CircumCentreLocation::On => {
+                get_inf_on_midpoint_triangle(&tri, edge, circumcentre, midpoint)?
             }
         };
 
@@ -608,6 +626,7 @@ where
     Some(Line::new(inf_line.start, coord! { x: p_x, y: p_y}))
 }
 
+// Construct the edges to infinity
 fn construct_edges_to_inf<T: GeoFloat>(
     triangles: &[DelaunayTriangle<T>],
     vertices: &[Coord<T>],
@@ -681,18 +700,23 @@ where
 #[derive(Debug, PartialEq, Eq)]
 pub enum VoronoiDiagramError {
     /// An error occurred when attempting to complete Delaunay Triangulation
-    /// before computing the Voronoi Diagram
+    /// before computing the Voronoi Diagram.
     DelaunayError(DelaunayTriangulationError),
-    /// This error occurs when a conversion from a value to a Geo Generic T fails.
+    /// This error occurs when a value cannot be converted to the core
+    /// number type of the [`Polygon`] or [`MultiPoint`] being used to generate
+    /// the voronoi diagram.
+    /// Typically this would occur because a float being used in the construction
+    /// cannot be converted into T when calculating the Voronoi diagram for either
+    /// `Polygon<T>` or `MultiPoint<T>`.
     CannotConvertBetweenGeoGenerics,
     /// This error occurs when the bounding box cannot be determined when creating
     /// a clipping mask for the points.
     CannotDetermineBoundsFromClipppingMask,
-    /// This error occurs when a vertex to infinity is expected but cannot be computed
+    /// This error occurs when a vertex to infinity is expected but cannot be computed.
     CannotComputeExpectedInfinityVertex,
-    /// This error occurs when the position of a Triangle's circumcenter cannot be determined.
-    CannotDetermineCircumcenterPosition,
-    /// The delaunay triangulation is invalid
+    /// This error occurs when the position of a [`Triangle`]'s circumcentre cannot be determined.
+    CannotDetermineCircumcentrePosition,
+    /// The delaunay triangulation is invalid.
     InvalidTriangulation,
 }
 
@@ -711,10 +735,10 @@ impl fmt::Display for VoronoiDiagramError {
             VoronoiDiagramError::CannotComputeExpectedInfinityVertex => {
                 write!(f, "Cannot compute expected boundary to infinity")
             }
-            VoronoiDiagramError::CannotDetermineCircumcenterPosition => {
+            VoronoiDiagramError::CannotDetermineCircumcentrePosition => {
                 write!(
                     f,
-                    "Cannot compute if the circumcenter is inside, outside or on the triangle"
+                    "Cannot compute if the circumcentre is inside, outside or on the triangle"
                 )
             }
             VoronoiDiagramError::InvalidTriangulation => {
@@ -846,8 +870,8 @@ mod test {
         );
 
         assert_eq!(
-            CircumCenterLocation::from_triangle(&triangle).unwrap(),
-            CircumCenterLocation::Inside
+            CircumCentreLocation::from_triangle(&triangle).unwrap(),
+            CircumCentreLocation::Inside
         );
 
         // Obtuse triangle
@@ -858,8 +882,8 @@ mod test {
         );
 
         assert_eq!(
-            CircumCenterLocation::from_triangle(&triangle).unwrap(),
-            CircumCenterLocation::Outside
+            CircumCentreLocation::from_triangle(&triangle).unwrap(),
+            CircumCentreLocation::Outside
         );
 
         // Right triangle
@@ -870,8 +894,8 @@ mod test {
         );
 
         assert_eq!(
-            CircumCenterLocation::from_triangle(&triangle).unwrap(),
-            CircumCenterLocation::On
+            CircumCentreLocation::from_triangle(&triangle).unwrap(),
+            CircumCentreLocation::On
         );
     }
 
@@ -885,11 +909,11 @@ mod test {
         )
         .into();
 
-        let circumcenter = triangle.get_circumcircle_center().unwrap();
+        let circumcentre = triangle.get_circumcircle_centre().unwrap();
         let midpoint = coord! {x: 2., y: 0.};
 
-        let inf_line = get_inf_inside_triangle(&circumcenter, &midpoint);
-        assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 2., y: 0.}));
+        let inf_line = get_inf_inside_triangle(&circumcentre, &midpoint);
+        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 2., y: 0.}));
 
         //Acute triangle pointing up
         let triangle: DelaunayTriangle<_> = Triangle::new(
@@ -899,11 +923,11 @@ mod test {
         )
         .into();
 
-        let circumcenter = triangle.get_circumcircle_center().unwrap();
+        let circumcentre = triangle.get_circumcircle_centre().unwrap();
         let midpoint = coord! {x: 2., y: 0.};
 
-        let inf_line = get_inf_inside_triangle(&circumcenter, &midpoint);
-        assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 2., y: 0.}));
+        let inf_line = get_inf_inside_triangle(&circumcentre, &midpoint);
+        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 2., y: 0.}));
 
         //Acute triangle pointing left
         let triangle: DelaunayTriangle<_> = Triangle::new(
@@ -913,11 +937,11 @@ mod test {
         )
         .into();
 
-        let circumcenter = triangle.get_circumcircle_center().unwrap();
+        let circumcentre = triangle.get_circumcircle_centre().unwrap();
         let midpoint = coord! {x: 0., y: 2.};
 
-        let inf_line = get_inf_inside_triangle(&circumcenter, &midpoint);
-        assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 0., y: 2.}));
+        let inf_line = get_inf_inside_triangle(&circumcentre, &midpoint);
+        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 0., y: 2.}));
 
         //Acute triangle pointing right
         let triangle: DelaunayTriangle<_> = Triangle::new(
@@ -927,11 +951,11 @@ mod test {
         )
         .into();
 
-        let circumcenter = triangle.get_circumcircle_center().unwrap();
+        let circumcentre = triangle.get_circumcircle_centre().unwrap();
         let midpoint = coord! {x: 0., y: 2.};
 
-        let inf_line = get_inf_inside_triangle(&circumcenter, &midpoint);
-        assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 0., y: 2.}));
+        let inf_line = get_inf_inside_triangle(&circumcentre, &midpoint);
+        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 0., y: 2.}));
 
         //Acute triangle angle right
         let triangle: DelaunayTriangle<_> = Triangle::new(
@@ -941,11 +965,11 @@ mod test {
         )
         .into();
 
-        let circumcenter = triangle.get_circumcircle_center().unwrap();
+        let circumcentre = triangle.get_circumcircle_centre().unwrap();
         let midpoint = coord! {x: 1., y: 1.};
 
-        let inf_line = get_inf_inside_triangle(&circumcenter, &midpoint);
-        assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 1.0, y: 1.0}));
+        let inf_line = get_inf_inside_triangle(&circumcentre, &midpoint);
+        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 1.0, y: 1.0}));
 
         //Acute triangle angle left
         let triangle: DelaunayTriangle<_> = Triangle::new(
@@ -955,11 +979,11 @@ mod test {
         )
         .into();
 
-        let circumcenter = triangle.get_circumcircle_center().unwrap();
+        let circumcentre = triangle.get_circumcircle_centre().unwrap();
         let midpoint = coord! {x: 1., y: 1.};
 
-        let inf_line = get_inf_inside_triangle(&circumcenter, &midpoint);
-        assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 1.0, y: 1.0}));
+        let inf_line = get_inf_inside_triangle(&circumcentre, &midpoint);
+        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 1.0, y: 1.0}));
     }
 
     #[test]
@@ -972,16 +996,16 @@ mod test {
         );
 
         assert_eq!(
-            CircumCenterLocation::from_triangle(&triangle).unwrap(),
-            CircumCenterLocation::Outside
+            CircumCentreLocation::from_triangle(&triangle).unwrap(),
+            CircumCentreLocation::Outside
         );
 
         let triangle: DelaunayTriangle<_> = triangle.into();
-        let circumcenter = triangle.get_circumcircle_center().unwrap();
+        let circumcentre = triangle.get_circumcircle_centre().unwrap();
         let midpoint = coord! {x: 3., y: 0.};
         let inf_line =
-            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint, None).unwrap();
-        assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 3., y: -8.}));
+            get_inf_outside_triangle(&triangle.into(), &circumcentre, &midpoint, None).unwrap();
+        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 3., y: -8.}));
 
         // Obtuse triangle inf line pointing up
         let triangle = Triangle::new(
@@ -990,16 +1014,16 @@ mod test {
             coord! {x: 3., y: 1.},
         );
         assert_eq!(
-            CircumCenterLocation::from_triangle(&triangle).unwrap(),
-            CircumCenterLocation::Outside
+            CircumCentreLocation::from_triangle(&triangle).unwrap(),
+            CircumCentreLocation::Outside
         );
 
         let triangle: DelaunayTriangle<_> = triangle.into();
-        let circumcenter = triangle.get_circumcircle_center().unwrap();
+        let circumcentre = triangle.get_circumcircle_centre().unwrap();
         let midpoint = coord! {x: 0., y: 1.};
         let inf_line =
-            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint, None).unwrap();
-        assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 0., y: 9.0}));
+            get_inf_outside_triangle(&triangle.into(), &circumcentre, &midpoint, None).unwrap();
+        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 0., y: 9.0}));
 
         // Obtuse triangle inf line pointing left
         let triangle = Triangle::new(
@@ -1008,16 +1032,16 @@ mod test {
             coord! {x: 1., y: 3.},
         );
         assert_eq!(
-            CircumCenterLocation::from_triangle(&triangle).unwrap(),
-            CircumCenterLocation::Outside
+            CircumCentreLocation::from_triangle(&triangle).unwrap(),
+            CircumCentreLocation::Outside
         );
 
         let triangle: DelaunayTriangle<_> = triangle.into();
-        let circumcenter = triangle.get_circumcircle_center().unwrap();
+        let circumcentre = triangle.get_circumcircle_centre().unwrap();
         let midpoint = coord! {x: 0., y: 3.};
         let inf_line =
-            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint, None).unwrap();
-        assert_eq!(inf_line, Line::new(circumcenter, coord! {x: -8., y: 3.}));
+            get_inf_outside_triangle(&triangle.into(), &circumcentre, &midpoint, None).unwrap();
+        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: -8., y: 3.}));
 
         // Obtuse triangle at an angle pointing down
         let triangle = Triangle::new(
@@ -1026,16 +1050,16 @@ mod test {
             coord! {x: -1., y: 3.},
         );
         assert_eq!(
-            CircumCenterLocation::from_triangle(&triangle).unwrap(),
-            CircumCenterLocation::Outside
+            CircumCentreLocation::from_triangle(&triangle).unwrap(),
+            CircumCentreLocation::Outside
         );
 
         let triangle: DelaunayTriangle<_> = triangle.into();
-        let circumcenter = triangle.get_circumcircle_center().unwrap();
+        let circumcentre = triangle.get_circumcircle_centre().unwrap();
         let midpoint = coord! {x: 3., y: 3.};
         let inf_line =
-            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint, None).unwrap();
-        assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 3.5, y: 2.5}));
+            get_inf_outside_triangle(&triangle.into(), &circumcentre, &midpoint, None).unwrap();
+        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 3.5, y: 2.5}));
 
         // Obtuse triangle at an angle pointing up
         let triangle = Triangle::new(
@@ -1044,18 +1068,18 @@ mod test {
             coord! {x: 7., y: 3.},
         );
         assert_eq!(
-            CircumCenterLocation::from_triangle(&triangle).unwrap(),
-            CircumCenterLocation::Outside
+            CircumCentreLocation::from_triangle(&triangle).unwrap(),
+            CircumCentreLocation::Outside
         );
 
         let triangle: DelaunayTriangle<_> = triangle.into();
-        let circumcenter = triangle.get_circumcircle_center().unwrap();
+        let circumcentre = triangle.get_circumcircle_centre().unwrap();
         let midpoint = coord! {x: 3., y: 3.};
         let inf_line =
-            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint, None).unwrap();
-        assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 2.5, y: 3.5}));
+            get_inf_outside_triangle(&triangle.into(), &circumcentre, &midpoint, None).unwrap();
+        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 2.5, y: 3.5}));
 
-        // Circumcenter is outside triangle but infinity line
+        // Circumcentre is outside triangle but infinity line
         // needs to pass across the triangle.
         let triangle = Triangle::new(
             coord! {x: 15., y:19.},
@@ -1063,21 +1087,21 @@ mod test {
             coord! {x: 19., y: 17.},
         );
         assert_eq!(
-            CircumCenterLocation::from_triangle(&triangle).unwrap(),
-            CircumCenterLocation::Outside
+            CircumCentreLocation::from_triangle(&triangle).unwrap(),
+            CircumCentreLocation::Outside
         );
 
         let triangle: DelaunayTriangle<_> = triangle.into();
-        let circumcenter = triangle.get_circumcircle_center().unwrap();
+        let circumcentre = triangle.get_circumcircle_centre().unwrap();
         let midpoint = coord! {x: 18., y: 18.};
         let inf_line =
-            get_inf_outside_triangle(&triangle.into(), &circumcenter, &midpoint, None).unwrap();
-        assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 18., y: 18.}));
+            get_inf_outside_triangle(&triangle.into(), &circumcentre, &midpoint, None).unwrap();
+        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 18., y: 18.}));
     }
 
     #[test]
     fn test_inf_on_midpoint_triangle() {
-        // The midpoint falls on the circumcenter for
+        // The midpoint falls on the circumcentre for
         // right triangles
         // Triangle facing left
         let triangle = Triangle::new(
@@ -1090,27 +1114,27 @@ mod test {
         let triangle: DelaunayTriangle<_> = triangle.into();
 
         let edge = Line::new(coord! {x: 4., y: 0.}, coord! {x: 0., y: 3.});
-        let circumcenter = triangle.get_circumcircle_center().unwrap();
+        let circumcentre = triangle.get_circumcircle_centre().unwrap();
         let midpoint = coord! {x: 2., y: 1.5};
-        assert_eq!(circumcenter, midpoint);
-        let inf_line = get_inf_on_midpoint_triangle(&tri, &edge, &circumcenter, &midpoint).unwrap();
+        assert_eq!(circumcentre, midpoint);
+        let inf_line = get_inf_on_midpoint_triangle(&tri, &edge, &circumcentre, &midpoint).unwrap();
         approx::assert_relative_eq!(
             inf_line,
-            Line::new(circumcenter, coord! {x: 6., y: 6.8333}),
+            Line::new(circumcentre, coord! {x: 6., y: 6.8333}),
             max_relative = 0.3
         );
 
         // Left edge
         let edge = Line::new(coord! {x: 0., y: 0.}, coord! {x: 0., y: 3.});
         let midpoint = coord! {x: 0., y: 1.5};
-        let inf_line = get_inf_on_midpoint_triangle(&tri, &edge, &circumcenter, &midpoint).unwrap();
-        assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 0., y: 1.5}));
+        let inf_line = get_inf_on_midpoint_triangle(&tri, &edge, &circumcentre, &midpoint).unwrap();
+        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 0., y: 1.5}));
 
         // Edge facing down
         let edge = Line::new(coord! {x: 0., y: 0.}, coord! {x: 4., y: 0.});
         let midpoint = coord! {x: 2., y: 0.};
-        let inf_line = get_inf_on_midpoint_triangle(&tri, &edge, &circumcenter, &midpoint).unwrap();
-        assert_eq!(inf_line, Line::new(circumcenter, coord! {x: 2., y: 0.}));
+        let inf_line = get_inf_on_midpoint_triangle(&tri, &edge, &circumcentre, &midpoint).unwrap();
+        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 2., y: 0.}));
     }
 
     #[test]
@@ -1165,9 +1189,9 @@ mod test {
 
         let triangles = [tri, tri2, tri3];
 
-        let circumcenters: Vec<_> = triangles
+        let circumcentres: Vec<_> = triangles
             .iter()
-            .map(|x| x.get_circumcircle_center().unwrap())
+            .map(|x| x.get_circumcircle_centre().unwrap())
             .collect();
 
         let mut shared_edges = vec![
@@ -1185,7 +1209,7 @@ mod test {
         for idx in 0..3 {
             let perpendicular_line = define_edge_to_infinity(
                 &triangles[idx],
-                &circumcenters[idx],
+                &circumcentres[idx],
                 &mut shared_edges,
                 None,
             )

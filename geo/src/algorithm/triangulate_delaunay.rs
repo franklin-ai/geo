@@ -3,7 +3,7 @@ use std::{fmt, fmt::Debug};
 use crate::coord;
 use crate::{BoundingRect, Coord, GeoFloat, Line, MultiPoint, Polygon, Triangle};
 
-pub const DEFAULT_SUPER_TRIANGLE_EXPANSION: f64 = 20.;
+const DEFAULT_SUPER_TRIANGLE_EXPANSION: f64 = 20.;
 
 type Result<T> = std::result::Result<T, DelaunayTriangulationError>;
 
@@ -282,7 +282,7 @@ where
     #[cfg(feature = "voronoi")]
     /// Get the center of the [Circumcircle](https://en.wikipedia.org/wiki/Circumcircle)
     /// for the Delaunay triangle.
-    pub fn get_circumcircle_center(&self) -> Result<Coord<T>> {
+    pub fn get_circumcircle_centre(&self) -> Result<Coord<T>> {
         // Pin the triangle to the origin to simplify the calculation
         let b = self.0 .1 - self.0 .0;
         let c = self.0 .2 - self.0 .0;
@@ -421,7 +421,7 @@ mod test {
             coord! {x: 30., y: 10.},
         ));
 
-        let circle_center = triangle.get_circumcircle_center().unwrap();
+        let circle_center = triangle.get_circumcircle_centre().unwrap();
         approx::assert_relative_eq!(circle_center, coord! {x: 20., y: 10.});
     }
 
@@ -436,7 +436,7 @@ mod test {
         // The circumcircle for collinear points cannot be
         // determined as the radius would be infinite
         triangle
-            .get_circumcircle_center()
+            .get_circumcircle_centre()
             .expect_err("Cannot compute circumcircle");
     }
 
