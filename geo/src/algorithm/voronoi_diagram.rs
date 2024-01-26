@@ -9,7 +9,10 @@ use crate::{BoundingRect, TriangulateDelaunay};
 
 type Result<T> = result::Result<T, VoronoiDiagramError>;
 
-const DEFAULT_CLIPPING_MASK_EXPANSION: f64 = 20.;
+/// The default expansion value for creating a clipping mask.
+/// A bounding rectangle is computed for the points and the rectangle
+/// is expanded by this value by default.
+pub const DEFAULT_CLIPPING_MASK_EXPANSION: f64 = 20.;
 
 /// The default value for determining if the slope of a line is
 /// near zero or near infinite.
@@ -28,11 +31,6 @@ pub struct VoronoiComponents<T: GeoFloat> {
     pub vertices: Vec<Coord<T>>,
     /// The lines of the Voronoi diagram.
     pub lines: Vec<Line<T>>,
-    /// This is an index of Delaunay triangles that are / have neighours
-    /// the first value is the index of the triangle and the second value
-    /// is the index of a neighbouring triangle.
-    /// If the triangle does not have a neighbour the value is `None`.
-    pub neighbours: Vec<(Option<usize>, Option<usize>)>,
 }
 
 /// The clipping mask used to trim the infinity lines of
@@ -49,6 +47,7 @@ where
 {
     /// Compute the Voronoi diagram components with a clipping mask to trim infinity lines.
     /// If `clipping_mask` is set to None, one will be computed by expanding the geometry's
+    /// bounding box, using the [`DEFAULT_CLIPPING_MASK_EXPANSION`] to expand the size of the
     /// bounding box.
     ///
     /// The `slope_threshold` is used when creating the infinity lines to determine lines with a slope
@@ -69,6 +68,8 @@ where
     ///     coord!{ x: 0., y: 20.},
     /// ];
     /// let voronoi = poly.compute_voronoi_components(None, None).unwrap();
+    /// assert_eq!(voronoi.lines.len(), 12);
+    /// assert_eq!(voronoi.vertices.len(), 6);
     /// ```
     fn compute_voronoi_components(
         &self,
@@ -119,7 +120,7 @@ where
             delaunay_triangles: vec![],
             vertices: vec![],
             lines: vec![],
-            neighbours: vec![],
+            // neighbours: vec![],
         });
     }
 
@@ -130,6 +131,14 @@ where
 /// The Voronoi diagram is a [dual graph](https://en.wikipedia.org/wiki/Dual_graph)
 /// of the [Delaunay triangulation](https://en.wikipedia.org/wiki/Delaunay_triangulation)
 /// and thus the Voronoi diagram can be created from the Delaunay triangulation.
+/// The `clipping_mask` is used to constrain the generated infinity lines,
+/// if set to `None` a rectangle is determined by expanding the bounding box
+/// constraining the points of the triangles by a factor of [`DEFAULT_CLIPPING_MASK_EXPANSION`].
+/// The `slope_threshold` is used to determine if an infinity line has a slope of near infininty
+/// or near zero.
+/// When set to `None` the `slope_threshold` is set to a default value of `['DEFAULT_SLOPE_THRESHOLD`].
+/// Changing the value of `slope_threshold` may affect the direction of some infinity lines and should
+/// be modified with care.
 fn compute_voronoi_components_from_delaunay<T: GeoFloat>(
     triangles: &[Triangle<T>],
     clipping_mask: Option<&Polygon<T>>,
@@ -143,7 +152,6 @@ where
             delaunay_triangles: vec![],
             vertices: vec![],
             lines: vec![],
-            neighbours: vec![],
         });
     }
 
@@ -190,7 +198,6 @@ where
         delaunay_triangles: triangles.to_vec(),
         vertices,
         lines: voronoi_lines,
-        neighbours: shared.neighbours,
     })
 }
 
@@ -343,7 +350,7 @@ enum CircumCentreLocation {
 }
 
 impl CircumCentreLocation {
-    pub fn from_triangle<T: GeoFloat>(triangle: &Triangle<T>) -> Result<CircumCentreLocation>
+    fn from_triangle<T: GeoFloat>(triangle: &Triangle<T>) -> Result<CircumCentreLocation>
     where
         f64: From<T>,
     {
@@ -379,27 +386,45 @@ impl CircumCentreLocation {
     }
 }
 
-// Get the inifinity line from inside to outside the triangle.
-// Infinity lines that start from within the triangle to outside
-// need to start at the circumcentre and move towards infinity.
-fn get_inf_line_in_out_triangle<T: GeoFloat>(tmp_line: Line<T>, circumcentre: &Coord<T>) -> Line<T>
+/// Get the infinity line from inside to outside the triangle.
+/// Infinity lines that start from within the triangle to outside
+/// need to start at the circumcentre and move towards infinity.
+///
+///```ascii
+///       @           E
+///      @ @
+///     @   @
+///    @     M
+///   @   C   @
+///  @         @
+///  @ @ @ @ @ @
+///
+///  M: Midpoint
+///  C: Circumecentre
+///  E: End of infinity line
+///```
+fn get_inf_line_in_out_triangle<T: GeoFloat>(inf_line: Line<T>, circumcentre: &Coord<T>) -> Line<T>
 where
     f64: From<T>,
 {
-    let slope = tmp_line.slope();
+    let slope = inf_line.slope();
     let end = if slope.is_infinite() {
         let end_x = circumcentre.x;
-        let end_y = circumcentre.y + tmp_line.dy();
+        let end_y = circumcentre.y + inf_line.dy();
         coord! {x: end_x, y: end_y}
     } else {
         let intercept = circumcentre.y - slope * circumcentre.x;
-        let end_x = circumcentre.x + tmp_line.dx();
+        let end_x = circumcentre.x + inf_line.dx();
         let end_y = slope * end_x + intercept;
         coord! {x: end_x, y: end_y}
     };
     Line::new(*circumcentre, end)
 }
 
+/// Determine is the slope of a line is near infinity or zero.
+/// This function has been implemented to prevent issues with
+/// very large or very small slopes that are not found to be
+/// `is_infinite` or `is_zero` by type T.
 fn is_slope_near_zero_or_inf<T: GeoFloat>(
     line: &Line<T>,
     slope_threshold: Option<T>,
@@ -418,8 +443,28 @@ where
     Ok((slope_near_zero, slope_near_infinite))
 }
 
-// Get the infinity line that lies outside of the
-// Delaunay triangle.
+/// Construct the infinity line where the circumcentre lies outside of the triangle.
+/// Infinity lines need to travel towards infinity passing through the midpoint.
+/// This function constructs the infinity line, ensuring the infinity line travels outwards
+/// from the triangle and does not intersect any of the other edges of the triangle.
+///
+///```ascii
+///           @
+///          @  @
+///         @    @
+///        @      @
+///       @     @
+///      @    @
+///     @   M  
+///    @  @    C
+///   @ @
+///  @
+///                        E
+///
+///  M: Midpoint
+///  C: Circumecentre
+///  E: End of infinity line
+///```
 fn get_inf_outside_triangle<T: GeoFloat>(
     triangle: &Triangle<T>,
     circumcentre: &Coord<T>,
@@ -430,12 +475,15 @@ where
     f64: From<T>,
 {
     let two = T::from(2.).ok_or(VoronoiDiagramError::CannotConvertBetweenGeoGenerics)?;
-    let tmp_line = Line::new(*midpoint, *circumcentre);
+
+    // The circumcentre is outside the triangle so start by constructing a line from the
+    // midpoint to the circumcentre.
+    let inf_line = Line::new(*midpoint, *circumcentre);
     let (slope_near_zero, slope_near_infinite) =
-        is_slope_near_zero_or_inf(&tmp_line, slope_threshold)?;
+        is_slope_near_zero_or_inf(&inf_line, slope_threshold)?;
 
     // If the infinity line crosses one of the other lines of the triangle
-    // the tmp_line needs to be flipped.
+    // the direction of the infinity line needs to be flipped.
     // Get the other lines of the triangle
     let mut other_lines: Vec<_> = Vec::new();
     for line in triangle.to_lines() {
@@ -445,44 +493,49 @@ where
         }
     }
 
-    let mut intersections: Vec<_> = Vec::new();
+    let mut intersections: bool = false;
 
+    // Check for intersections
     for line in other_lines {
-        if let Some(inter) = trim_line_to_intersection(&tmp_line, &line) {
+        if let Some(inter) = trim_line_to_intersection(&inf_line, &line) {
             let x_point = inter.end;
             // If the intersection point is lies within the bounds of the
-            // tmp_line and the other line then it intersects the triangle
-            let tmp_line_between_x = x_point.x > tmp_line.start.x && x_point.x < tmp_line.end.x
-                || x_point.x > tmp_line.end.x && x_point.x < tmp_line.start.x;
-            let tmp_line_between_y = x_point.y > tmp_line.start.y && x_point.y < tmp_line.end.y
-                || x_point.y > tmp_line.end.y && x_point.y < tmp_line.start.y;
+            // infinity line and the other line then it intersects the triangle
+            let inf_line_between_x = x_point.x > inf_line.start.x && x_point.x < inf_line.end.x
+                || x_point.x > inf_line.end.x && x_point.x < inf_line.start.x;
+            let inf_line_between_y = x_point.y > inf_line.start.y && x_point.y < inf_line.end.y
+                || x_point.y > inf_line.end.y && x_point.y < inf_line.start.y;
             let line_between_x = x_point.x > line.start.x && x_point.x < line.end.x
                 || x_point.x > line.end.x && x_point.x < line.start.x;
             let line_between_y = x_point.y > line.start.y && x_point.y < line.end.y
                 || x_point.y > line.end.y && x_point.y < line.start.y;
 
             let intersects_tmp = if slope_near_zero {
-                tmp_line_between_x
+                inf_line_between_x
             } else if slope_near_infinite {
-                tmp_line_between_y
+                inf_line_between_y
             } else {
-                tmp_line_between_x && tmp_line_between_y
+                inf_line_between_x && inf_line_between_y
             };
             let intersects_line = line_between_x && line_between_y;
 
-            intersections.push(intersects_line && intersects_tmp);
+            if intersects_line && intersects_tmp {
+                intersections = true;
+                break;
+            }
         }
     }
 
-    let tmp_line = if intersections.contains(&true) {
+    let tmp_line = if intersections {
         Line::new(*circumcentre, *midpoint)
     } else {
-        tmp_line
+        inf_line
     };
 
     Ok(get_inf_line_in_out_triangle(tmp_line, circumcentre))
 }
 
+// A convenience wrapper to help testing
 fn get_inf_inside_triangle<T: GeoFloat>(circumcentre: &Coord<T>, midpoint: &Coord<T>) -> Line<T>
 where
     f64: From<T>,
@@ -510,6 +563,31 @@ where
     coord! {x: x, y: y}
 }
 
+/// Compute the infinity line for a triangle where the circumcentre lies on the midpoint.
+/// In this situations you cannot determine the correct direction of the infinity line
+/// using the circumcentre and the midpoint.
+/// The correct direction is the path away from the midpoints of the other edges
+/// of the triangle.
+/// This commonly occurs with right triangles.
+///
+///```ascii
+///  @                   E
+///  @ @
+///  @  @
+///  @   @
+///  @    @
+///  X     MC
+///  @      @
+///  @       @
+///  @        @
+///  @ @ X @ @ @
+///
+///
+///  M: Midpoint
+///  C: Circumecentre
+///  E: End of infinity line
+///  X: Midpoint of other edges of the triangle
+///```
 fn get_inf_on_midpoint_triangle<T: GeoFloat>(
     triangle: &Triangle<T>,
     edge: &Line<T>,

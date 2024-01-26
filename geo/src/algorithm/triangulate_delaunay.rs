@@ -3,7 +3,10 @@ use std::{fmt, fmt::Debug};
 use crate::coord;
 use crate::{BoundingRect, Coord, GeoFloat, Line, MultiPoint, Polygon, Triangle};
 
-const DEFAULT_SUPER_TRIANGLE_EXPANSION: f64 = 20.;
+/// The default expansion value for creating the super triangle.
+/// A bounding rectangle is computed for the points and the super triangle
+/// is expanded by this value by default.
+pub const DEFAULT_SUPER_TRIANGLE_EXPANSION: f64 = 20.;
 
 type Result<T> = std::result::Result<T, DelaunayTriangulationError>;
 
