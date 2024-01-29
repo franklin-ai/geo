@@ -3,6 +3,9 @@ use std::{fmt, fmt::Debug};
 use crate::coord;
 use crate::{BoundingRect, Coord, GeoFloat, Line, MultiPoint, Polygon, Triangle};
 
+/// The default expansion value for creating the super triangle.
+/// A bounding rectangle is computed for the points and the super triangle
+/// is expanded by this value by default.
 pub const DEFAULT_SUPER_TRIANGLE_EXPANSION: f64 = 20.;
 
 type Result<T> = std::result::Result<T, DelaunayTriangulationError>;
@@ -11,9 +14,9 @@ type Result<T> = std::result::Result<T, DelaunayTriangulationError>;
 /// [Bowyer](https://doi.org/10.1093%2Fcomjnl%2F24.2.162)-[Watson](https://doi.org/10.1093%2Fcomjnl%2F24.2.167)
 /// algorithm
 pub trait TriangulateDelaunay<T: GeoFloat> {
-    /// # Examples
+    /// # Example
     ///
-    /// ```
+    /// ```rust
     /// use geo::{coord, polygon, Triangle, TriangulateDelaunay};
     ///
     /// let points = polygon![
@@ -222,22 +225,10 @@ where
     f64: From<T>,
 {
     #[cfg(feature = "voronoi")]
-    /// Check if a `DelaunayTriangle` shares at least one vertex.
-    pub fn shares_vertex(&self, other: &DelaunayTriangle<T>) -> bool {
-        let other_vertices = other.0.to_array();
-        for vertex in self.0.to_array().iter() {
-            if other_vertices.contains(vertex) {
-                return true;
-            }
-        }
-        false
-    }
-
-    #[cfg(feature = "voronoi")]
     /// Check if a `DelaunayTriangle` is a neighbour i.e.
     /// shares an edge.
     /// If the triangles are neighbours the shared edge is returned.
-    pub fn shares_edge(&self, other: &DelaunayTriangle<T>) -> Option<Line<T>> {
+    pub(crate) fn shares_edge(&self, other: &DelaunayTriangle<T>) -> Option<Line<T>> {
         let other_lines = other.0.to_lines();
         for line in self.0.to_lines().iter() {
             for other_line in other_lines.iter() {
@@ -254,7 +245,7 @@ where
     /// This method uses the determinant of the vertices of the triangle and the
     /// new point as described by [Guibas & Stolfi](https://doi.org/10.1145%2F282918.282923)
     /// and on [Wikipedia](https://en.wikipedia.org/wiki/Delaunay_triangulation#Algorithms).
-    pub fn is_in_circumcircle(&self, c: &Coord<T>) -> bool {
+    pub(crate) fn is_in_circumcircle(&self, c: &Coord<T>) -> bool {
         let a_d_x: f64 = (self.0 .0.x - c.x).into();
         let a_d_y: f64 = (self.0 .0.y - c.y).into();
         let b_d_x: f64 = (self.0 .1.x - c.x).into();
@@ -282,7 +273,7 @@ where
     #[cfg(feature = "voronoi")]
     /// Get the center of the [Circumcircle](https://en.wikipedia.org/wiki/Circumcircle)
     /// for the Delaunay triangle.
-    pub fn get_circumcircle_center(&self) -> Result<Coord<T>> {
+    pub(crate) fn get_circumcircle_centre(&self) -> Result<Coord<T>> {
         // Pin the triangle to the origin to simplify the calculation
         let b = self.0 .1 - self.0 .0;
         let c = self.0 .2 - self.0 .0;
@@ -320,7 +311,8 @@ pub enum DelaunayTriangulationError {
     /// This error occurs when the `Polygon` describing the points to
     /// triangulate does not return a bounding rectangle.
     FailedToConstructSuperTriangle,
-    FailedToConvertSuperTriangleFactor,
+    /// Failed to convert value into generic type T.
+    /// This error occurs when the value 2.0 cannot be converted into T.
     GeoTypeConversionError,
 }
 
@@ -339,9 +331,6 @@ impl fmt::Display for DelaunayTriangulationError {
             DelaunayTriangulationError::GeoTypeConversionError => {
                 write!(f, "Failed to convert from Geo type T")
             }
-            DelaunayTriangulationError::FailedToConvertSuperTriangleFactor => {
-                write!(f, "Failed to convert super triangle expansion factor")
-            }
         }
     }
 }
@@ -351,30 +340,6 @@ mod test {
     use super::*;
     use crate::Contains;
     use geo_types::{LineString, MultiPoint, Point};
-
-    #[test]
-    fn test_triangle_shares_vertex() {
-        let triangle = DelaunayTriangle(Triangle::new(
-            coord! {x: 0., y: 0.},
-            coord! {x: 10., y: 20.},
-            coord! {x: -12., y: -2.},
-        ));
-        let other = DelaunayTriangle(Triangle::new(
-            coord! {x: 0., y: 0.},
-            coord! {x: 30., y: 40.},
-            coord! {x: 40., y: 30.},
-        ));
-
-        assert!(triangle.shares_vertex(&other));
-
-        let other = DelaunayTriangle(Triangle::new(
-            coord! {x: 30., y: 40.},
-            coord! {x: 40., y: 30.},
-            coord! {x: 50., y: 20.},
-        ));
-
-        assert!(!triangle.shares_vertex(&other));
-    }
 
     #[test]
     fn test_triangle_is_neighbour() {
@@ -423,7 +388,7 @@ mod test {
             coord! {x: 30., y: 10.},
         ));
 
-        let circle_center = triangle.get_circumcircle_center().unwrap();
+        let circle_center = triangle.get_circumcircle_centre().unwrap();
         approx::assert_relative_eq!(circle_center, coord! {x: 20., y: 10.});
     }
 
@@ -438,7 +403,7 @@ mod test {
         // The circumcircle for collinear points cannot be
         // determined as the radius would be infinite
         triangle
-            .get_circumcircle_center()
+            .get_circumcircle_centre()
             .expect_err("Cannot compute circumcircle");
     }
 
