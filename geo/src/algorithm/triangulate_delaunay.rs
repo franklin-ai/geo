@@ -225,22 +225,10 @@ where
     f64: From<T>,
 {
     #[cfg(feature = "voronoi")]
-    /// Check if a `DelaunayTriangle` shares at least one vertex.
-    pub fn shares_vertex(&self, other: &DelaunayTriangle<T>) -> bool {
-        let other_vertices = other.0.to_array();
-        for vertex in self.0.to_array().iter() {
-            if other_vertices.contains(vertex) {
-                return true;
-            }
-        }
-        false
-    }
-
-    #[cfg(feature = "voronoi")]
     /// Check if a `DelaunayTriangle` is a neighbour i.e.
     /// shares an edge.
     /// If the triangles are neighbours the shared edge is returned.
-    pub fn shares_edge(&self, other: &DelaunayTriangle<T>) -> Option<Line<T>> {
+    pub(crate) fn shares_edge(&self, other: &DelaunayTriangle<T>) -> Option<Line<T>> {
         let other_lines = other.0.to_lines();
         for line in self.0.to_lines().iter() {
             for other_line in other_lines.iter() {
@@ -257,7 +245,7 @@ where
     /// This method uses the determinant of the vertices of the triangle and the
     /// new point as described by [Guibas & Stolfi](https://doi.org/10.1145%2F282918.282923)
     /// and on [Wikipedia](https://en.wikipedia.org/wiki/Delaunay_triangulation#Algorithms).
-    pub fn is_in_circumcircle(&self, c: &Coord<T>) -> bool {
+    pub(crate) fn is_in_circumcircle(&self, c: &Coord<T>) -> bool {
         let a_d_x: f64 = (self.0 .0.x - c.x).into();
         let a_d_y: f64 = (self.0 .0.y - c.y).into();
         let b_d_x: f64 = (self.0 .1.x - c.x).into();
@@ -285,7 +273,7 @@ where
     #[cfg(feature = "voronoi")]
     /// Get the center of the [Circumcircle](https://en.wikipedia.org/wiki/Circumcircle)
     /// for the Delaunay triangle.
-    pub fn get_circumcircle_centre(&self) -> Result<Coord<T>> {
+    pub(crate) fn get_circumcircle_centre(&self) -> Result<Coord<T>> {
         // Pin the triangle to the origin to simplify the calculation
         let b = self.0 .1 - self.0 .0;
         let c = self.0 .2 - self.0 .0;
@@ -352,30 +340,6 @@ mod test {
     use super::*;
     use crate::Contains;
     use geo_types::{LineString, MultiPoint, Point};
-
-    #[test]
-    fn test_triangle_shares_vertex() {
-        let triangle = DelaunayTriangle(Triangle::new(
-            coord! {x: 0., y: 0.},
-            coord! {x: 10., y: 20.},
-            coord! {x: -12., y: -2.},
-        ));
-        let other = DelaunayTriangle(Triangle::new(
-            coord! {x: 0., y: 0.},
-            coord! {x: 30., y: 40.},
-            coord! {x: 40., y: 30.},
-        ));
-
-        assert!(triangle.shares_vertex(&other));
-
-        let other = DelaunayTriangle(Triangle::new(
-            coord! {x: 30., y: 40.},
-            coord! {x: 40., y: 30.},
-            coord! {x: 50., y: 20.},
-        ));
-
-        assert!(!triangle.shares_vertex(&other));
-    }
 
     #[test]
     fn test_triangle_is_neighbour() {
