@@ -22,6 +22,10 @@ pub const DEFAULT_CLIPPING_MASK_EXPANSION: f64 = 20.;
 /// A near zero slope is less than `1 / DEFAULT_SLOPE_THRESHOLD`.
 pub const DEFAULT_SLOPE_THRESHOLD: f64 = 1e3;
 
+/// Threshold value used to determine if a triangle is a right triangle
+/// using the cosine rule.
+const IS_RIGHT_TRIANGLE_THRESHOLD: f64 = 0.00001;
+
 /// The components of a Voronoi Diagram.
 #[derive(Debug, Clone)]
 pub struct VoronoiComponents<T: GeoFloat> {
@@ -120,7 +124,6 @@ where
             delaunay_triangles: vec![],
             vertices: vec![],
             lines: vec![],
-            // neighbours: vec![],
         });
     }
 
@@ -372,7 +375,9 @@ impl CircumCentreLocation {
         ];
         let is_obtuse_triangle = angles.iter().any(|x| *x > FRAC_PI_2);
         let is_acute_triangle = angles.iter().all(|x| *x < FRAC_PI_2);
-        let is_right_triangle = angles.iter().any(|x| ((*x) - FRAC_PI_2).abs() < 0.00001);
+        let is_right_triangle = angles
+            .iter()
+            .any(|x| ((*x) - FRAC_PI_2).abs() < IS_RIGHT_TRIANGLE_THRESHOLD);
 
         Ok(if is_right_triangle {
             CircumCentreLocation::On
@@ -597,30 +602,32 @@ fn get_inf_on_midpoint_triangle<T: GeoFloat>(
 where
     f64: From<T>,
 {
-    // The midpoint is on the circumcentre so we need to use the other midpoints to determine direction
-    if midpoint == circumcentre {
-        // Construct the perpendicular line
-        let line: Line<T> = get_perpendicular_line(edge)?;
-        let incentre = get_incentre(triangle);
-        let guiding_line = Line::new(incentre, *circumcentre);
-        let end_x = if guiding_line.dx().is_negative() {
-            circumcentre.x - line.dx().abs()
-        } else {
-            circumcentre.x + line.dx().abs()
-        };
-        let end_y = if guiding_line.dy().is_negative() {
-            circumcentre.y - line.dy().abs()
-        } else {
-            circumcentre.y + line.dy().abs()
-        };
-        Ok(Line::new(*circumcentre, coord! {x: end_x, y: end_y}))
-        // The midpoint is not on the circumcentre so we can use the standard in triangle method
-    } else {
-        Ok(get_inf_line_in_out_triangle(
+    // While the circumcentre and midpoint may equal on one edge of the triangle,
+    // this is only the case for one of the edges of the triangle.
+    // If this is not one of those cases break out earlier, using the existing
+    // method.
+    if midpoint != circumcentre {
+        return Ok(get_inf_line_in_out_triangle(
             Line::new(*circumcentre, *midpoint),
             circumcentre,
-        ))
+        ));
     }
+    // The midpoint is on the circumcentre so we need to use the other midpoints to determine direction
+    // Construct the perpendicular line
+    let line: Line<T> = get_perpendicular_line(edge)?;
+    let incentre = get_incentre(triangle);
+    let guiding_line = Line::new(incentre, *circumcentre);
+    let end_x = if guiding_line.dx().is_negative() {
+        circumcentre.x - line.dx().abs()
+    } else {
+        circumcentre.x + line.dx().abs()
+    };
+    let end_y = if guiding_line.dy().is_negative() {
+        circumcentre.y - line.dy().abs()
+    } else {
+        circumcentre.y + line.dy().abs()
+    };
+    Ok(Line::new(*circumcentre, coord! {x: end_x, y: end_y}))
 }
 
 // Edges to infinity need to start from the circumcentre and travel
@@ -854,6 +861,9 @@ mod test {
             let flipped_line = Line::new(line.end, line.start);
             let orig_eq = approx::relative_eq!(*line, expected, max_relative = 0.3);
             let flip_eq = approx::relative_eq!(flipped_line, expected, max_relative = 0.3);
+            if !(orig_eq || flip_eq) {
+                print!("");
+            }
             assert!(orig_eq || flip_eq);
         }
     }
@@ -1179,7 +1189,7 @@ mod test {
 
     #[test]
     fn test_inf_on_midpoint_triangle() {
-        // The midpoint falls on the circumcentre for right triangles.
+        // The midpoint falls on the circumcentre for the hypotenuse of right triangles.
         let triangle = Triangle::new(
             coord! {x: 0., y:0.},
             coord! {x: 0., y: 3.},
@@ -1199,18 +1209,6 @@ mod test {
             Line::new(circumcentre, coord! {x: 6., y: 6.8333}),
             max_relative = 0.3
         );
-
-        // Left edge
-        let edge = Line::new(coord! {x: 0., y: 0.}, coord! {x: 0., y: 3.});
-        let midpoint = coord! {x: 0., y: 1.5};
-        let inf_line = get_inf_on_midpoint_triangle(&tri, &edge, &circumcentre, &midpoint).unwrap();
-        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 0., y: 1.5}));
-
-        // Edge facing down
-        let edge = Line::new(coord! {x: 0., y: 0.}, coord! {x: 4., y: 0.});
-        let midpoint = coord! {x: 2., y: 0.};
-        let inf_line = get_inf_on_midpoint_triangle(&tri, &edge, &circumcentre, &midpoint).unwrap();
-        assert_eq!(inf_line, Line::new(circumcentre, coord! {x: 2., y: 0.}));
     }
 
     #[test]
